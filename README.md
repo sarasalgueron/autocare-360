@@ -1,32 +1,67 @@
-# React + TypeScript + Vite
+# AutoCare 360
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Sistema académico full-stack para la gestión de un taller automotriz: clientes, vehículos, órdenes de servicio, tareas técnicas, estimaciones, evidencias y seguimiento hasta la entrega.
 
-Currently, two official plugins are available:
+## 1. Problema
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Actualmente el taller depende de formularios físicos para registrar clientes, vehículos, diagnósticos preliminares, órdenes de servicio, tareas, repuestos estimados, estados y entrega. Esto puede producir pérdida de trazabilidad, duplicidad de vehículos, estimaciones sin versionar y falta de visibilidad para el cliente sobre el avance de su vehículo.
 
-## React Compiler
+## 2. Objetivo del MVP
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Construir un sistema web y móvil que permita controlar el ciclo completo de una orden de servicio desde la recepción del vehículo hasta su entrega, con evidencias, responsables, estimaciones versionadas y trazabilidad completa.
 
-## Expanding the Oxlint configuration
+## 3. Actores principales
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+- Administrador
+- Asesor de servicio
+- Técnico
+- Cliente / propietario
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+## 4. Alcance inicial
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- Clientes
+- Vehículos
+- Catálogo de servicios
+- Órdenes de servicio
+- Tareas técnicas
+- Estimaciones
+- Evidencias
+- Estados y entregas
+- Notificaciones
+- Reportes
+
+## 5. Fuera de alcance
+
+- Integración con sistemas de pago reales
+- Facturación fiscal
+- GPS en tiempo real
+- IA para decidir precios o autorizar órdenes automáticamente
+- Diagnóstico automotriz automatizado
+
+## 6. Stack objetivo del semestre
+
+- Backend: Java 21 + Spring Boot
+- Base de datos: PostgreSQL + migraciones (Flyway)
+- Web: React + TypeScript
+- Móvil: React Native + TypeScript
+- Pruebas API: Postman / Bruno / Insomnia
+- Contenedores: Docker / Docker Compose
+- Versionado: Git + GitHub
+- CI: GitHub Actions
+- IA: Spring AI, únicamente como capacidad complementaria (sugerencia de tareas a partir de observaciones del asesor)
+
+## 7. Estado actual
+
+Etapa inicial: comprensión del problema, alcance, lenguaje inicial del dominio y backlog v0.1. Todavía no existe código de aplicación.
+
+## 8. Documentación
+
+- `docs/01-vision/vision-v0.1.md`
+- `docs/01-vision/glossary-v0.1.md`
+- `docs/02-requirements/backlog-v0.1.md`
+- `docs/03-decisions/`
+
+## 9. Regla de trabajo
+
+Cada cambio importante debe ser comprensible, trazable y defendible. El repositorio es la fuente de verdad del proyecto.
+
