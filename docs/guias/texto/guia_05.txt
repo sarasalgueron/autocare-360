@@ -1,0 +1,597 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 05
+CONEXION REACT ↔ SPRING BOOT
+.env - CORS - fetch - async/await - services - GET - POST - loading - errores HTTP
+Version
+ESTUDIANTE
+Proyecto
+ParkFlow360 - React + TypeScript + Vite + WebStorm + Spring Boot
+Meta
+Reemplazar datos simulados y console.log por comunicacion HTTP real con el backend.
+Secuencia: Guia 01 -> 02 -> 03 -> 04 -> GUIA 05 -> 06 -> 07 -> 08 -> 09 -> 10
+
+Indice de contenidos
+1. Objetivos
+2. Contrato Swagger
+3. Estructura
+4. HTTP
+5. Vite .env
+6. CORS
+7. apiClient
+8. Services
+9. GET Clientes
+10. POST Cliente
+11. Vehiculo 1:N
+12. Loading y errores
+13. Diagnostico
+14. fetch vs Axios
+15. Practica
+16. 30 preguntas
+17. Checklist
+18. Siguiente guia
+1. Objetivos de aprendizaje
+Comprender el recorrido HTTP entre navegador, frontend React, Controller Spring Boot y respuesta JSON.
+Configurar una URL base de API con variables de entorno de Vite sin hardcodear rutas en todos los componentes.
+Explicar que las variables VITE_ son visibles en el cliente y nunca deben almacenar secretos.
+Comprender CORS y diferenciar un error CORS de un error del backend o de red.
+Construir una capa reutilizable apiClient + services usando fetch, Promise, async y await.
+Consumir GET para listar Clientes y Vehiculos con estados loading, error y datos.
+Consumir POST para crear registros a partir de los formularios desarrollados en la Guia 04.
+Usar Network/Console del navegador y Swagger para diagnosticar problemas de integracion.
+Distinguir error de red, respuesta HTTP no exitosa y error de validacion del backend.
+2. Punto de partida: antes de tocar React
+El backend ya fue probado con Postman y Swagger. Antes de escribir una sola linea HTTP en React, el estudiante debe abrir Swagger y registrar el contrato real de su API.
+Dato a verificar
+Ejemplo didactico
+Accion del estudiante
+Puerto backend
+http://localhost:8080
+Usar el puerto real que aparece al ejecutar Spring Boot.
+Ruta Clientes
+/api/clientes
+Copiar exactamente la ruta del @RequestMapping/@GetMapping.
+Ruta Vehiculos
+/api/vehiculos
+No inventar rutas; verificar Swagger.
+JSON de POST Cliente
+nombre, apellido, documento...
+Comparar con DTO/record que recibe el Controller.
+JSON de POST Vehiculo
+placa, marca, clienteId...
+Si el backend espera cliente:{id}, adaptar el request.
+Respuesta de POST
+201 + objeto creado
+Confirmar status y body reales.
+
+Regla de oro: Swagger es el contrato observable del backend. El codigo de esta guia usa /api/clientes y /api/vehiculos como ejemplo coherente; si ParkFlow360 usa otra ruta o DTO, se reemplaza por el contrato real.
+
+3. Estructura que agregaremos
+Arbol sugerido
+src/
+|-- api/
+|   |-- apiClient.ts
+|-- features/
+|   |-- clientes/
+|   |   |-- services/
+|   |   |   |-- clienteService.ts
+|   |   |-- types/
+|   |   |   |-- ClienteCreateRequest.ts
+|   |-- vehiculos/
+|       |-- services/
+|       |   |-- vehiculoService.ts
+|       |-- types/
+|       |   |-- VehiculoCreateRequest.ts
+|-- ...
+|-- vite-env.d.ts
+.env.development
+
+Responsabilidad: Los componentes muestran/interactuan; los services conocen endpoints; apiClient resuelve detalles HTTP comunes. Esta separacion evita tener fetch repetido por toda la aplicacion.
+
+4. Modelo mental HTTP que deben defender
+Elemento
+Pregunta que responde
+ParkFlow360
+URL
+¿A donde viaja la peticion?
+http://localhost:8080/api/clientes
+Metodo
+¿Que accion HTTP se solicita?
+GET listar / POST crear
+Headers
+¿Que metadatos viajan?
+Content-Type: application/json cuando hay body JSON
+Body
+¿Que datos se envian?
+JSON del cliente o vehiculo en POST
+Status
+¿Como termino la peticion?
+200, 201, 400, 404, 409, 500...
+Response body
+¿Que devuelve el backend?
+JSON, mensaje de error o sin contenido
+
+Status
+Interpretacion didactica
+200 OK
+GET correcto o respuesta exitosa.
+201 Created
+Recurso creado correctamente.
+204 No Content
+Exito sin cuerpo de respuesta.
+400 Bad Request
+Datos invalidos o request incompatible.
+404 Not Found
+Ruta/recurso no encontrado.
+409 Conflict
+Conflicto de negocio, por ejemplo documento/placa duplicada si el backend lo define.
+500 Internal Server Error
+Fallo no controlado del servidor.
+
+Punto clave: fetch NO lanza automaticamente una excepcion por un 404 o 500. La Promise puede resolverse con Response y nosotros debemos revisar response.ok.
+
+5. Configurar la URL base con Vite y .env
+.env.development
+VITE_API_URL=http://localhost:8080/api
+
+Vite expone al codigo del navegador las variables cuyo nombre empieza con VITE_. Se leen mediante import.meta.env.
+src/vite-env.d.ts (tipado opcional recomendado)
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
+Lectura basica
+const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  throw new Error('Falta configurar VITE_API_URL');
+}
+
+Seguridad: Una variable VITE_ termina en el bundle del frontend y puede ser leida por el usuario. Sirve para URLs/configuracion publica; NO para contraseñas, claves privadas, tokens secretos ni credenciales de base de datos.
+
+WebStorm/Vite: Despues de crear o cambiar .env, reinicie npm run dev para evitar trabajar con una configuracion anterior.
+
+6. Habilitar CORS en Spring Boot para desarrollo
+React/Vite y Spring Boot normalmente se ejecutan en origenes distintos durante desarrollo. El backend debe autorizar explicitamente el origen del frontend.
+Ejemplo global de CORS en Spring MVC
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**")
+                .allowedOrigins("http://localhost:5173")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*");
+    }
+}
+
+Si Vite arranco en otro puerto, allowedOrigins debe coincidir con el origen real del navegador.
+En produccion se autoriza el dominio real del frontend, no localhost.
+No confundir CORS con autenticacion: CORS decide que origen del navegador puede llamar; no identifica al usuario.
+Si mas adelante se usan cookies/credenciales, la configuracion requiere decisiones adicionales y no conviene combinar credenciales con origen wildcard.
+7. Crear apiClient.ts: una sola puerta HTTP
+src/api/apiClient.ts
+const API_URL = import.meta.env.VITE_API_URL;
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export async function apiFetch<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<T> {
+  if (!API_URL) {
+    throw new Error('Falta VITE_API_URL');
+  }
+
+  const headers = new Headers(options.headers);
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(
+      response.status,
+      detail || response.statusText || 'Error HTTP',
+    );
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+Que centralizamos: URL base, cabeceras JSON, verificacion response.ok, conversion de errores HTTP y lectura JSON. Los services dejan de repetir esta logica.
+
+8. Contratos de request y services
+features/clientes/types/ClienteCreateRequest.ts
+import type { Cliente } from '../models/Cliente';
+
+export type ClienteCreateRequest = Omit<Cliente, 'id'>;
+
+features/vehiculos/types/VehiculoCreateRequest.ts
+import type { Vehiculo } from '../models/Vehiculo';
+
+export type VehiculoCreateRequest = Omit<Vehiculo, 'id'>;
+
+Importante: Omit<..., id> es valido solo si el JSON del backend coincide con el modelo frontend menos id. Si Swagger usa un DTO distinto, cree una interface exacta para ese DTO.
+
+features/clientes/services/clienteService.ts
+import { apiFetch } from '../../../api/apiClient';
+import type { Cliente } from '../models/Cliente';
+import type { ClienteCreateRequest } from '../types/ClienteCreateRequest';
+
+export const clienteService = {
+  listar(signal?: AbortSignal): Promise<Cliente[]> {
+    return apiFetch<Cliente[]>('/clientes', { signal });
+  },
+
+  crear(data: ClienteCreateRequest): Promise<Cliente> {
+    return apiFetch<Cliente>('/clientes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+features/vehiculos/services/vehiculoService.ts
+import { apiFetch } from '../../../api/apiClient';
+import type { Vehiculo } from '../models/Vehiculo';
+import type { VehiculoCreateRequest } from '../types/VehiculoCreateRequest';
+
+export const vehiculoService = {
+  listar(signal?: AbortSignal): Promise<Vehiculo[]> {
+    return apiFetch<Vehiculo[]>('/vehiculos', { signal });
+  },
+
+  crear(data: VehiculoCreateRequest): Promise<Vehiculo> {
+    return apiFetch<Vehiculo>('/vehiculos', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+9. Primer GET real: listar Clientes
+Ahora ClientesPage deja de usar clientesMock. El componente tiene tres estados independientes: datos, cargando y error.
+ClientesPage.tsx - reemplazo de datos mock
+import { useEffect, useState } from 'react';
+import ClienteTable from '../features/clientes/components/ClienteTable';
+import { clienteService } from '../features/clientes/services/clienteService';
+import type { Cliente } from '../features/clientes/models/Cliente';
+
+export default function ClientesPage() {
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const cargarClientes = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const data = await clienteService.listar(controller.signal);
+        setClientes(data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Error inesperado');
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+
+    void cargarClientes();
+    return () => controller.abort();
+  }, []);
+
+  if (loading) return <div className="state-card">Cargando clientes...</div>;
+  if (error) return <div className="state-card error">{error}</div>;
+
+  return <ClienteTable clientes={clientes} />;
+}
+
+10. Primer POST real: crear Cliente
+En ClienteForm reemplazamos el console.log final por una llamada al service. Se agrega submitting para impedir doble envio y onCreated para informar al padre.
+Cambios esenciales en ClienteForm.tsx
+import type { Cliente } from '../models/Cliente';
+import { clienteService } from '../services/clienteService';
+
+interface ClienteFormProps {
+  onCreated?: (cliente: Cliente) => void;
+}
+
+// Dentro de ClienteForm:
+const [submitting, setSubmitting] = useState(false);
+const [apiError, setApiError] = useState('');
+
+const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  setMensaje('');
+  setApiError('');
+
+  const validationErrors = validarCliente(formData);
+  setErrors(validationErrors);
+  if (Object.keys(validationErrors).length > 0) return;
+
+  const payload = {
+    ...formData,
+    nombre: formData.nombre.trim(),
+    apellido: formData.apellido.trim(),
+    documento: formData.documento.trim(),
+    email: formData.email.trim().toLowerCase(),
+  };
+
+  try {
+    setSubmitting(true);
+    const creado = await clienteService.crear(payload);
+    onCreated?.(creado);
+    setFormData(initialClienteForm);
+    setMensaje('Cliente creado correctamente.');
+  } catch (err) {
+    setApiError(err instanceof Error ? err.message : 'No se pudo crear');
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+// En el JSX:
+{apiError && <div className="form-error">{apiError}</div>}
+<button type="submit" disabled={submitting}>
+  {submitting ? 'Guardando...' : 'Guardar cliente'}
+</button>
+
+ClientesPage: actualizar la tabla con la respuesta del POST
+<ClienteForm
+  onCreated={(nuevo) => {
+    setClientes((prev) => [...prev, nuevo]);
+  }}
+/>
+<ClienteTable clientes={clientes} />
+
+Por que usamos la respuesta: El backend asigna datos definitivos como id. La tabla debe incorporar el objeto devuelto por la API, no inventar un id en el navegador.
+
+11. Vehiculo y la relacion Cliente 1:N
+El formulario de Vehiculo ya no debe obtener propietarios desde clientesMock. Debe cargar clientes reales y enviar la referencia en el formato que el backend espera.
+VehiculoForm/Page: cargar propietarios reales
+const [clientes, setClientes] = useState<Cliente[]>([]);
+
+useEffect(() => {
+  const controller = new AbortController();
+
+  void clienteService.listar(controller.signal)
+    .then((data) => setClientes(data.filter((c) => c.activo)))
+    .catch((err) => {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        console.error(err);
+      }
+    });
+
+  return () => controller.abort();
+}, []);
+
+POST Vehiculo si Swagger recibe clienteId
+const payload = {
+  placa: formData.placa.trim().toUpperCase(),
+  marca: formData.marca.trim(),
+  modelo: formData.modelo.trim(),
+  anio: Number(formData.anio),
+  color: formData.color.trim(),
+  clienteId: Number(formData.clienteId),
+  activo: formData.activo,
+};
+
+const creado = await vehiculoService.crear(payload);
+
+Mapeo alternativo segun contrato real
+// Variante SOLO si Swagger muestra que el backend espera un objeto Cliente:
+const payload = {
+  placa: formData.placa.trim().toUpperCase(),
+  marca: formData.marca.trim(),
+  modelo: formData.modelo.trim(),
+  anio: Number(formData.anio),
+  color: formData.color.trim(),
+  cliente: { id: Number(formData.clienteId) },
+  activo: formData.activo,
+};
+
+Defensa 1:N: La relacion no se “crea” en React. React selecciona el cliente y envia una referencia. El backend/JPA valida y persiste la asociacion en la base de datos.
+
+12. Loading, errores y experiencia de usuario
+Estado
+Que ve el usuario
+Regla
+loading GET
+Cargando clientes...
+No mostrar tabla vacia como si fuera resultado final.
+submitting POST
+Guardando... + boton disabled
+Evitar doble click/doble POST.
+error HTTP
+Mensaje visible
+No limitarse a console.error.
+validacion frontend
+Error junto al campo
+No enviar request innecesario.
+exito
+Confirmacion y datos actualizados
+Usar respuesta del backend.
+
+CSS minimo sugerido
+.state-card,
+.form-error,
+.form-success {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+
+.state-card.error,
+.form-error {
+  background: #fdecec;
+}
+
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+13. Diagnostico con DevTools + Swagger
+1. Confirmar primero en Swagger que GET/POST funcionan y observar JSON exacto.
+2. Abrir DevTools -> Network y ejecutar la accion desde React.
+3. Revisar Request URL, Method, Status Code, Request Payload y Response.
+4. Si no aparece ninguna peticion, el problema esta antes de fetch: evento/ruta/codigo.
+5. Si aparece CORS, revisar origen permitido por Spring.
+6. Si hay 404, comparar endpoint frontend con Swagger.
+7. Si hay 400, comparar JSON enviado con el DTO/record esperado.
+8. Si hay 500, revisar logs de Spring Boot; no “arreglar” React a ciegas.
+9. Si hay 200 pero la UI falla, inspeccionar la forma real del JSON y el tipado frontend.
+Sintoma
+Zona probable
+Comprobacion
+Failed to fetch
+Red/CORS/backend apagado
+Network + consola + puerto.
+404
+Ruta incorrecta
+Swagger vs endpoint del service.
+400
+Body incompatible/validacion
+Request Payload + error backend.
+415
+Content-Type/body
+Headers y JSON.stringify.
+500
+Backend
+Logs de Spring + stack trace.
+Tabla vacia con 200
+JSON no coincide
+Preview/Response en Network.
+POST duplicado
+Doble click/logica repetida
+submitting + revisar handlers.
+
+14. fetch vs Axios: que deben saber por ahora
+Aspecto
+fetch
+Axios
+Instalacion
+Incluido en el navegador
+npm install axios
+404/500
+No lanza por status; revisar response.ok
+Por defecto rechaza respuestas fuera de 2xx
+JSON request
+JSON.stringify manual
+Serializacion JSON comoda
+JSON response
+response.json()
+data ya accesible en response.data
+Interceptors
+No nativos
+Si, utiles para token/errores globales
+Objetivo Guia 05
+Aprender HTTP sin ocultar detalles
+Reconocer alternativa para proyectos grandes
+
+Ejemplo opcional - NO es necesario migrar esta guia
+// Equivalente conceptual con Axios (opcional)
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+});
+
+const { data } = await api.get<Cliente[]>('/clientes');
+
+Decision pedagogica: Usamos fetch primero porque obliga a comprender Response, status, headers y JSON. Cuando esos conceptos estan claros, Axios se aprende como una capa de conveniencia.
+
+15. Practica evaluada
+Implementar la conexion real del proyecto personal del estudiante usando sus propias dos entidades 1:N. No basta copiar Cliente/Vehiculo.
+Crear VITE_API_URL y leerlo desde React.
+Configurar CORS solo para el origen de desarrollo requerido.
+Crear apiClient reutilizable con response.ok y error HTTP.
+Crear service para ambas entidades.
+Reemplazar mocks por GET real en ambos listados.
+Conectar al menos un POST de la entidad padre y un POST de la entidad hija.
+Representar la FK/relacion usando el contrato real de Swagger.
+Mostrar loading, error y submitting.
+Demostrar tres fallos intencionales: URL incorrecta, CORS y body invalido; diagnosticar cada uno.
+Capturar evidencias de Network: GET exitoso y POST exitoso.
+16. Defensa oral - 30 preguntas
+1. ¿Que problema resuelve VITE_API_URL y por que no conviene repetir http://localhost:8080 en cada componente?
+2. ¿Por que una variable VITE_ no debe contener una contraseña?
+3. ¿Que es un origen en el contexto de CORS?
+4. ¿Por que Postman puede funcionar y React en el navegador fallar por CORS?
+5. ¿CORS protege la base de datos, autentica usuarios o controla origenes del navegador?
+6. ¿Que devuelve fetch inmediatamente: los datos JSON o una Promise?
+7. ¿Que hace await?
+8. ¿Por que fetch no entra necesariamente al catch cuando el servidor responde 404?
+9. ¿Que significa response.ok?
+10. ¿Por que response.json() tambien es asincrono?
+11. ¿Para que existe apiClient si podriamos usar fetch directamente en cada componente?
+12. ¿Que responsabilidad tiene clienteService?
+13. ¿Que diferencia existe entre modelo Cliente y ClienteCreateRequest?
+14. ¿Por que el POST no envia id si lo genera el backend?
+15. ¿Para que sirve JSON.stringify en el body?
+16. ¿Cuando agregamos Content-Type: application/json?
+17. ¿Que diferencia existe entre loading y submitting?
+18. ¿Por que deshabilitamos el boton durante POST?
+19. ¿Que ocurre desde el click Guardar Cliente hasta PostgreSQL?
+20. ¿Que ocurre desde PostgreSQL hasta que la nueva fila aparece en React?
+21. ¿Por que usamos el objeto creado devuelto por el backend en vez de fabricar un id?
+22. ¿Que evidencia buscaria en Network ante un 400?
+23. ¿Que evidencia buscaria ante un 404?
+24. ¿Que evidencia buscaria ante un 500?
+25. ¿Como diferencia un error CORS de un error JPA?
+26. ¿Para que sirve AbortController en un GET de un Effect?
+27. ¿Que riesgo existe si ejecutamos un POST automaticamente dentro de un Effect?
+28. ¿Como se representa la relacion Cliente 1:N al crear un Vehiculo?
+29. ¿Que haria si Swagger espera cliente:{id:5} y su frontend envia clienteId:5?
+30. Explique el flujo completo: formulario -> service -> apiClient -> Spring Controller -> Service -> Repository -> PostgreSQL -> JSON -> estado -> pantalla.
+Regla de defensa: No se acepta responder solo “porque funciona”. Debe nombrar capa, objeto, metodo HTTP, status y transformacion de datos.
+
+17. Checklist final del estudiante
+[ ] Swagger confirma rutas y JSON reales.
+[ ] VITE_API_URL funciona y no contiene secretos.
+[ ] CORS permite el origen exacto de Vite.
+[ ] apiClient centraliza fetch y response.ok.
+[ ] clienteService y vehiculoService existen.
+[ ] Los mocks fueron reemplazados por GET real.
+[ ] El POST Cliente crea en PostgreSQL y actualiza la UI.
+[ ] El POST Vehiculo conserva correctamente la relacion con Cliente.
+[ ] loading/submitting/error son visibles.
+[ ] Puedo diagnosticar 400, 404, 500 y CORS con Network.
+[ ] Puedo explicar el viaje completo de ida y vuelta sin mirar el codigo.
+18. Cierre y preparacion para la Guia 06
+Al finalizar la Guia 05, React ya habla realmente con Spring Boot. La siguiente guia consolidara el CRUD completo de Cliente: listar, buscar por id, crear, editar con PUT y eliminar con DELETE, incluyendo confirmaciones y sincronizacion de la tabla.
+Siguiente guia: Guia 06 - CRUD completo de Cliente: GET, GET/{id}, POST, PUT y DELETE; edicion en formulario, confirmacion, manejo de estados HTTP y actualizacion de UI.
+
+Fuentes oficiales: Vite env (vite.dev/guide/env-and-mode) | MDN Fetch API | Spring Web MVC CORS | React useEffect. Rutas de ejemplo: la fuente de verdad es Swagger/OpenAPI y los Controller/DTO reales de ParkFlow360.
+

@@ -1,0 +1,541 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 08
+ESTADO, EFECTOS, ASINCRONIA Y HOOKS REUTILIZABLES
+useEffect - cleanup - AbortController - StrictMode - stale requests - custom hooks - loading/error/success
+Version
+ESTUDIANTE
+Proyecto
+ParkFlow360 - React + TypeScript + Vite + WebStorm + Spring Boot
+Meta
+Reducir duplicacion y dominar el ciclo de vida asincrono de Clientes y Vehiculos con patrones React defendibles.
+Secuencia: Guia 01 -> 02 -> 03 -> 04 -> 05 -> 06 -> 07 -> GUIA 08 -> 09 -> 10
+
+Indice de contenidos
+1. Objetivos
+2. Punto de partida
+3. Taxonomia de estado
+4. useEffect
+5. Dependencias
+6. Cleanup + AbortController
+7. Race conditions
+8. StrictMode
+9. Estados asincronos
+10. Custom Hooks
+11. useAsyncList
+12. Hooks de dominio
+13. Refactor Pages
+14. Mensajes de exito
+15. Cuando NO usar Effects
+16. Diagnostico
+17. Mapa de responsabilidades
+18. Practica
+19. 40 preguntas
+20. Checklist
+21. Siguiente guia
+1. Objetivos de aprendizaje
+Distinguir estado de datos, estado de interfaz y estado de operacion asincrona.
+Comprender useEffect como sincronizacion con sistemas externos, no como un evento de boton.
+Declarar dependencias correctas y explicar cuando un Effect vuelve a ejecutarse.
+Implementar cleanup para cancelar o deshacer trabajo externo al desmontar o cambiar dependencias.
+Usar AbortController y AbortSignal para cancelar fetch y evitar actualizaciones innecesarias.
+Prevenir respuestas obsoletas cuando cambia rapidamente el recurso solicitado.
+Comprender el comportamiento adicional de StrictMode en desarrollo y corregir Effects fragiles.
+Extraer logica asincrona repetida a custom hooks con nombres y responsabilidades claras.
+Evitar estado derivado duplicado y calcular listas filtradas desde el estado fuente.
+Refactorizar ClientesPage y VehiculosPage sin perder el CRUD implementado en las Guias 06 y 07.
+Defender el flujo render -> Effect -> request -> cleanup -> respuesta -> setState -> re-render.
+2. Punto de partida: el problema despues de dos CRUD
+Al terminar las Guias 06 y 07, ClientesPage y VehiculosPage funcionan, pero empiezan a repetir patrones: arrays, loading, error, useEffect de carga, AbortController, try/catch/finally y logica de recarga. La Guia 08 no agrega otra entidad: mejora la calidad interna del frontend.
+Problema
+Sintoma en el codigo
+Meta de la Guia 08
+Duplicacion
+Mismo useEffect en Clientes y Vehiculos
+Extraer logica reutilizable sin ocultar el dominio.
+Requests obsoletos
+Una respuesta vieja puede llegar despues de una nueva
+Cancelar/ignorar trabajo que ya no corresponde.
+Estado ambiguo
+Un solo boolean loading intenta representar todo
+Separar carga inicial, guardado, eliminacion y mensajes.
+Effects fragiles
+Dependencias omitidas o cleanup inexistente
+Hacer Effects repetibles y seguros.
+Datos derivados duplicados
+Se guarda vehiculosFiltrados en otro estado
+Calcular desde vehiculos + filtro durante render.
+
+Regla arquitectonica: Refactorizar no significa cambiar el comportamiento observable. El usuario debe seguir pudiendo listar, crear, editar y eliminar exactamente igual; cambia la organizacion interna.
+
+3. Taxonomia de estado: que guardar y que no
+Tipo
+Ejemplo
+Debe ser useState?
+Datos remotos
+clientes, vehiculos
+Si, porque llegan de un sistema externo y cambian la UI.
+Entrada del usuario
+search, clienteFiltro
+Si, representa una eleccion editable.
+Operacion
+loading, saving, deletingId
+Si, describe trabajo asincrono en curso.
+Mensaje
+error, successMessage
+Si, si debe mostrarse y desaparecer/cambiar.
+Dato derivado
+vehiculosVisibles
+Normalmente no: se calcula desde vehiculos + filtro.
+Constante/config
+API_URL
+No como estado; proviene de configuracion.
+
+Estado fuente + dato derivado
+const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+const [clienteFiltro, setClienteFiltro] = useState('');
+
+// BIEN: dato derivado durante el render
+const vehiculosVisibles = clienteFiltro === ''
+  ? vehiculos
+  : vehiculos.filter(
+      (v) => v.clienteId === Number(clienteFiltro),
+    );
+
+Evite duplicar verdad: Si guarda tambien vehiculosFiltrados en useState, debe sincronizarlo cada vez que cambien vehiculos o clienteFiltro. Esa segunda copia puede quedar obsoleta.
+
+4. useEffect: modelo mental correcto
+Un Effect se usa para sincronizar un componente con algo externo a React: red, navegador, suscripciones, timers o librerias externas. No debe usarse para calcular valores que pueden obtenerse directamente durante el render.
+Anatomia conceptual de un Effect
+useEffect(() => {
+  // 1. setup: sincronizar con el sistema externo
+
+  return () => {
+    // 2. cleanup: detener/deshacer la sincronizacion anterior
+  };
+}, [dependencias]);
+
+Situacion
+Effect?
+Razon
+GET inicial al backend
+Si
+Sincroniza la UI con un sistema externo.
+Escuchar online/offline del navegador
+Si
+Suscripcion externa que requiere cleanup.
+Filtrar un array ya cargado
+No
+Es una transformacion pura derivable durante render.
+Responder a click Guardar
+No para iniciar el POST
+El evento del usuario ya indica cuando ejecutar la accion.
+Cambiar document.title por una seleccion
+Si
+Sincroniza con una API externa del navegador.
+
+5. Dependencias: por que el Effect se repite
+Effect dependiente de clienteId
+useEffect(() => {
+  const controller = new AbortController();
+
+  void clienteService
+    .obtenerPorId(clienteId, controller.signal)
+    .then(setCliente)
+    .catch((error) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setError('No se pudo cargar el cliente');
+      }
+    });
+
+  return () => controller.abort();
+}, [clienteId]);
+
+Cuando clienteId cambia, React ejecuta primero el cleanup del Effect anterior y luego el nuevo setup.
+No se deben eliminar dependencias solo para silenciar el linter.
+Una dependencia debe aparecer cuando el Effect lee un valor reactivo definido en el componente.
+Funciones u objetos creados en cada render pueden provocar ejecuciones adicionales si se usan como dependencias.
+6. Cleanup + AbortController
+AbortController permite asociar una señal a fetch. Al invocar abort(), la operacion puede cancelarse y fetch rechaza con un AbortError. Esto evita continuar trabajo que ya no es necesario.
+shared/utils/isAbortError.ts
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+Carga cancelable
+useEffect(() => {
+  const controller = new AbortController();
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await clienteService.listar(controller.signal);
+      setClientes(data);
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setError(error instanceof Error ? error.message : 'Error de carga');
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
+    }
+  };
+
+  void load();
+  return () => controller.abort();
+}, []);
+
+Importante: Abortar una peticion porque el componente se desmonta o cambia de recurso no debe mostrarse al usuario como "error del sistema". AbortError es una cancelacion esperada.
+
+7. Respuestas obsoletas y condiciones de carrera
+Una condicion de carrera aparece cuando varias operaciones asincronas compiten y una respuesta antigua termina sobrescribiendo datos mas nuevos. Es especialmente visible en busquedas, detalle por id o filtros que disparan requests.
+Abortar + ignorar resultados que ya no corresponden
+useEffect(() => {
+  const controller = new AbortController();
+  let ignore = false;
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      const data = await clienteService.obtenerPorId(
+        clienteId,
+        controller.signal,
+      );
+
+      if (!ignore) setCliente(data);
+    } catch (error) {
+      if (!ignore && !isAbortError(error)) {
+        setError('No se pudo cargar el cliente');
+      }
+    } finally {
+      if (!ignore) setLoading(false);
+    }
+  };
+
+  void load();
+
+  return () => {
+    ignore = true;
+    controller.abort();
+  };
+}, [clienteId]);
+
+Dos defensas: AbortController intenta detener el request. La bandera ignore evita aplicar una respuesta que ya no corresponde, incluso si existe trabajo asincrono posterior que no pudo abortarse.
+
+8. StrictMode y el Effect que "se ejecuta dos veces"
+En desarrollo, StrictMode realiza comprobaciones adicionales. Entre ellas puede ejecutar un ciclo extra setup -> cleanup -> setup para ayudar a detectar Effects sin limpieza correcta. Ese comportamiento no ocurre de la misma forma en el build de produccion.
+Respuesta incorrecta
+Respuesta profesional
+"Quito StrictMode para que deje de duplicar"
+Primero comprobar si el Effect soporta setup/cleanup/setup correctamente.
+"Uso useRef para impedir la segunda ejecucion"
+No esconder el problema; implementar cleanup y hacer el Effect repetible.
+"React esta enviando doble POST"
+Los POST iniciados por clicks deben vivir en handlers, no en un Effect de montaje.
+
+9. Estados asincronos: no todo es loading
+Estados con significado distinto
+const [loading, setLoading] = useState(true);          // carga inicial
+const [saving, setSaving] = useState(false);          // POST / PUT
+const [deletingId, setDeletingId] = useState<number | null>(null);
+const [error, setError] = useState('');
+const [successMessage, setSuccessMessage] = useState('');
+
+Estado
+Que controla
+Ejemplo de UI
+loading
+Carga de la coleccion
+Skeleton / "Cargando...".
+saving
+POST o PUT activo
+Deshabilitar Guardar, mostrar "Guardando...".
+deletingId
+DELETE de una fila
+Deshabilitar solo esa fila.
+error
+Ultimo fallo relevante
+Banner accesible de error.
+successMessage
+Confirmacion temporal
+"Cliente actualizado correctamente".
+
+No bloquee toda la pantalla: Eliminar un Vehiculo no obliga necesariamente a marcar loading=true para toda la pagina. deletingId permite representar exactamente la operacion que esta ocurriendo.
+
+10. Custom Hooks: reutilizar logica, no compartir estado
+Un custom Hook puede contener useState, useEffect y otros Hooks. Su nombre debe comenzar por use. Dos componentes que llaman al mismo custom Hook reutilizan la logica, pero cada llamada conserva su propio estado.
+Buen nombre
+Intencion
+useClientes
+Gestionar la logica de datos de Clientes.
+useVehiculos
+Gestionar la logica de datos de Vehiculos.
+useAsyncList
+Patron generico para cargar una coleccion asincrona.
+useMount
+Evitar: intenta esconder semantica de Effect.
+
+11. Implementar useAsyncList<T>
+shared/hooks/useAsyncList.ts
+import { useCallback, useEffect, useState } from 'react';
+import { isAbortError } from '../utils/isAbortError';
+
+type Loader<T> = (signal: AbortSignal) => Promise<T[]>;
+
+export function useAsyncList<T>(loader: Loader<T>) {
+  const [data, setData] = useState<T[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const reload = useCallback(() => {
+    setReloadToken((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const result = await loader(controller.signal);
+        setData(result);
+      } catch (error) {
+        if (!isAbortError(error)) {
+          setError(
+            error instanceof Error ? error.message : 'Error de carga',
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => controller.abort();
+  }, [loader, reloadToken]);
+
+  return { data, setData, loading, error, setError, reload };
+}
+
+Contrato del loader: El loader debe ser una referencia estable. Los metodos clienteService.listar y vehiculoService.listar definidos fuera del componente cumplen este objetivo. Si se crea una funcion nueva en cada render, el Effect podria repetirse innecesariamente.
+
+12. Hooks de dominio: useClientes y useVehiculos
+features/clientes/hooks/useClientes.ts
+import { clienteService } from '../services/clienteService';
+import { useAsyncList } from '../../../shared/hooks/useAsyncList';
+import type { Cliente } from '../models/Cliente';
+
+export function useClientes() {
+  return useAsyncList<Cliente>(clienteService.listar);
+}
+
+features/vehiculos/hooks/useVehiculos.ts
+import { vehiculoService } from '../services/vehiculoService';
+import { useAsyncList } from '../../../shared/hooks/useAsyncList';
+import type { Vehiculo } from '../models/Vehiculo';
+
+export function useVehiculos() {
+  return useAsyncList<Vehiculo>(vehiculoService.listar);
+}
+
+Responsabilidad: useAsyncList conoce el patron asincrono generico; useClientes/useVehiculos expresan la intencion del dominio. Los services siguen siendo los unicos que conocen las rutas HTTP.
+
+13. Refactor de ClientesPage y VehiculosPage
+ClientesPage.tsx - consume el Hook
+const {
+  data: clientes,
+  setData: setClientes,
+  loading,
+  error,
+  setError,
+  reload,
+} = useClientes();
+
+const handleSaved = (saved: Cliente, mode: 'create' | 'edit') => {
+  setClientes((prev) =>
+    mode === 'create'
+      ? [...prev, saved]
+      : prev.map((item) => item.id === saved.id ? saved : item),
+  );
+};
+
+VehiculosPage.tsx - datos + estado derivado
+const {
+  data: vehiculos,
+  setData: setVehiculos,
+  loading,
+  error,
+  setError,
+} = useVehiculos();
+
+const vehiculosVisibles = clienteFiltro === ''
+  ? vehiculos
+  : vehiculos.filter(
+      (v) => v.clienteId === Number(clienteFiltro),
+    );
+
+El Page conserva la coordinacion del CRUD y las decisiones de UI.
+El Hook centraliza la carga de la coleccion y su ciclo asincrono.
+El Service conserva fetch, metodos HTTP y rutas.
+Form y Table siguen siendo componentes de presentacion/interaccion, no dueños del backend.
+14. Mensajes de exito sin mezclar responsabilidades
+Mensaje simple de confirmacion
+const [successMessage, setSuccessMessage] = useState('');
+
+const showSuccess = (message: string) => {
+  setSuccessMessage(message);
+  window.setTimeout(() => setSuccessMessage(''), 2500);
+};
+
+// despues de un POST exitoso
+showSuccess('Cliente creado correctamente');
+
+Escalabilidad: Para una aplicacion mas grande conviene un sistema de toasts reutilizable. En esta guia basta separar successMessage de error para que el estudiante no use un unico string ambiguo.
+
+15. Cuando NO usar useEffect
+Caso
+Solucion preferida
+Filtrar Clientes por texto
+Calcular con filter durante render.
+Formatear nombre completo
+Funcion pura o expresion derivada.
+POST al presionar Guardar
+Event handler handleSubmit.
+DELETE al confirmar
+Event handler handleDelete.
+Copiar props a estado sin necesidad
+Usar props directamente o justificar modo editable.
+Calcular cantidad de Vehiculos
+vehiculos.length durante render.
+
+16. Diagnostico de asincronia y Effects
+Sintoma
+Causa probable
+Que revisar
+GET parece ejecutarse dos veces en dev
+StrictMode + Effect
+Cleanup, Network, build de produccion.
+Loop infinito de requests
+Dependencia cambia en cada render
+Objetos/funciones inline, setState dentro del Effect.
+Warning al desmontar / UI inconsistente
+Trabajo asincrono no cancelado
+AbortController / ignore / cleanup.
+Datos viejos reemplazan nuevos
+Race condition
+Id/filtro, cancelacion y guardas contra stale response.
+Spinner nunca termina
+finally no actualiza o request abortado mal tratado
+loading y signal.aborted.
+Error aparece al navegar
+AbortError tratado como fallo
+isAbortError antes de setError.
+Filtro queda desincronizado
+Estado derivado duplicado
+Eliminar segundo useState y calcular.
+Effect se repite sin razon aparente
+Dependencias inestables
+Referencias de funciones/objetos.
+
+17. Mapa de responsabilidades final
+Pieza
+Responsabilidad
+Page
+Coordina seleccion, edicion, filtros, formularios, tablas y mutaciones.
+Custom Hook
+Gestiona estado/effect reutilizable de carga y ciclo asincrono.
+Service
+Define operaciones HTTP y usa apiClient.
+apiClient
+URL base, headers, parseo y errores HTTP comunes.
+Form
+Estado temporal, validacion, submit y UX del formulario.
+Table
+Renderiza datos y emite eventos al Page.
+Spring Boot
+Valida reglas, coordina dominio y persistencia.
+PostgreSQL
+Persistencia e integridad referencial.
+
+Flujo de carga: Render -> custom Hook -> useEffect -> service -> apiClient -> fetch -> Spring -> JSON -> setData -> re-render. Si cambia la dependencia o se desmonta: cleanup -> abort.
+
+18. Practica evaluada
+Cada estudiante debe refactorizar el frontend de su propio proyecto 1:N usando los patrones de esta guia, sin perder ninguna funcionalidad del CRUD.
+Identificar al menos dos bloques asincronos duplicados entre dos paginas.
+Crear isAbortError o una utilidad equivalente.
+Implementar cleanup con AbortController en al menos una carga dependiente de id/filtro.
+Crear un custom Hook de carga con estado data/loading/error.
+Refactorizar una Page para consumir ese Hook.
+Eliminar al menos un estado derivado innecesario y calcular el valor durante render.
+Distinguir loading inicial, saving y deletingId en la UI.
+Demostrar en Network que una navegacion/cambio rapido puede cancelar un request.
+Explicar el doble ciclo de Effect en StrictMode sin desactivar StrictMode.
+Provocar un error real del backend y demostrar que AbortError no se presenta como error funcional.
+Defender las responsabilidades Page -> Hook -> Service -> apiClient.
+19. Defensa oral - 40 preguntas
+1. ¿Que problema intenta resolver la Guia 08 despues de terminar los CRUD?
+2. ¿Que diferencia existe entre estado fuente y estado derivado?
+3. ¿Por que vehiculosVisibles normalmente no debe almacenarse en useState?
+4. ¿Que es useEffect en terminos conceptuales?
+5. ¿En que se diferencia un Effect de un event handler?
+6. ¿Por que un POST de Guardar no deberia ejecutarse desde un Effect de montaje?
+7. ¿Que representa el array de dependencias?
+8. ¿Que ocurre cuando una dependencia cambia?
+9. ¿Que hace la funcion cleanup?
+10. ¿Cuando se ejecuta el cleanup?
+11. ¿Que es AbortController?
+12. ¿Que es AbortSignal?
+13. ¿Que sucede con fetch cuando se invoca abort()?
+14. ¿Por que AbortError no debe mostrarse como error funcional?
+15. ¿Que es una condicion de carrera en una carga por id?
+16. Explique un ejemplo donde una respuesta antigua reemplace una nueva.
+17. ¿Como ayuda AbortController a prevenir respuestas obsoletas?
+18. ¿Para que sirve una bandera ignore adicional?
+19. ¿Que comportamiento extra aplica StrictMode a Effects en desarrollo?
+20. ¿Por que React hace ese ciclo adicional?
+21. ¿Es correcto quitar StrictMode para esconder requests duplicados?
+22. ¿Es correcto usar useRef solo para impedir que el Effect se ejecute de nuevo?
+23. ¿Que diferencia hay entre loading y saving?
+24. ¿Que ventaja ofrece deletingId frente a un loading global?
+25. ¿Que es un custom Hook?
+26. ¿Por que su nombre debe comenzar por use?
+27. ¿Dos componentes que usan useClientes comparten el mismo estado interno?
+28. ¿Que responsabilidad tiene useAsyncList?
+29. ¿Que responsabilidad mantiene clienteService?
+30. ¿Por que loader debe ser una referencia estable en el Hook propuesto?
+31. ¿Que hace reloadToken?
+32. ¿Por que useCallback se usa para reload en el ejemplo?
+33. ¿Por que no conviene crear un useEffect para filtrar arrays ya cargados?
+34. ¿Que causa tipicamente un loop infinito de requests?
+35. ¿Como diagnostica un Effect que se repite inesperadamente?
+36. ¿Como queda el flujo Page -> Hook -> Service -> apiClient?
+37. ¿Donde debe manejarse el filtro de Vehiculos por Cliente si ya estan cargados pocos datos?
+38. ¿Que cambia si el volumen obliga a filtrar/paginar en backend?
+39. Explique el flujo completo cuando un componente se desmonta durante un GET.
+40. Explique como refactorizaria ClientesPage sin cambiar el comportamiento visible para el usuario.
+Regla de defensa: No responda "useEffect corre al cargar". Debe explicar sincronizacion, dependencias, cleanup, cancelacion y re-render con precision.
+
+20. Checklist final del estudiante
+[ ] Distingo estado fuente de estado derivado.
+[ ] Puedo justificar cada useEffect de mi proyecto.
+[ ] Mis Effects tienen dependencias correctas.
+[ ] La carga remota posee cleanup con AbortController cuando corresponde.
+[ ] No muestro AbortError como fallo funcional.
+[ ] Puedo explicar una race condition con dos ids o filtros.
+[ ] No desactive StrictMode para esconder un problema.
+[ ] Cree al menos un custom Hook con responsabilidad clara.
+[ ] Service conserva rutas/metodos HTTP; el Hook no las duplica.
+[ ] Distingo loading, saving y deletingId.
+[ ] El CRUD de Cliente y Vehiculo sigue funcionando despues del refactor.
+[ ] Puedo dibujar render -> Effect -> request -> cleanup -> state -> re-render.
+21. Cierre y preparacion para la Guia 09
+Al finalizar la Guia 08, ParkFlow360 ya no solo funciona: empieza a tener una arquitectura frontend defendible. Clientes y Vehiculos conservan su CRUD, pero la carga asincrona, los Effects y los estados transversales quedan organizados y reutilizables.
+Siguiente guia: Guia 09 - Componentes reutilizables y experiencia de usuario: busquedas, filtros, paginacion, modales, confirmaciones, componentes UI compartidos y refinamiento visual.
+
+Fuentes oficiales consultadas: React - useEffect, Synchronizing with Effects, StrictMode y Reusing Logic with Custom Hooks; MDN - AbortController/AbortSignal y Fetch API. URLs: https://react.dev/reference/react/useEffect | https://react.dev/learn/synchronizing-with-effects | https://react.dev/reference/react/StrictMode | https://react.dev/learn/reusing-logic-with-custom-hooks | https://developer.mozilla.org/en-US/docs/Web/API/AbortController
+

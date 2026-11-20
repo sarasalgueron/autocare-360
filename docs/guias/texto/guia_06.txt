@@ -1,0 +1,592 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 06
+CRUD COMPLETO DE CLIENTE
+GET - GET/{id} - POST - PUT - DELETE - editar - confirmar - sincronizar UI
+Version
+ESTUDIANTE
+Proyecto
+ParkFlow360 - React + TypeScript + Vite + WebStorm + Spring Boot
+Meta
+Dominar el ciclo CRUD de Cliente de extremo a extremo y poder defender cada metodo HTTP.
+Secuencia: Guia 01 -> 02 -> 03 -> 04 -> 05 -> GUIA 06 -> 07 -> 08 -> 09 -> 10
+
+Indice de contenidos
+1. Objetivos
+2. Contrato REST
+3. CRUD y HTTP
+4. Tipos + service
+5. Tabla con acciones
+6. GET/{id}
+7. Formulario create/edit
+8. POST/PUT
+9. Sincronizacion
+10. DELETE
+11. ClientesPage
+12. UX
+13. Flujos
+14. Diagnostico
+15. Practica
+16. 35 preguntas
+17. Checklist
+18. Siguiente guia
+1. Objetivos de aprendizaje
+Completar el CRUD de Cliente consumiendo los endpoints reales de Spring Boot.
+Diferenciar con precision GET coleccion, GET por id, POST, PUT y DELETE.
+Extender clienteService con listar, obtenerPorId, crear, actualizar y eliminar.
+Convertir ClienteForm en un formulario reutilizable para crear y editar.
+Agregar acciones Editar y Eliminar a ClienteTable sin mezclar logica HTTP dentro de la tabla.
+Sincronizar la lista de React despues de POST, PUT y DELETE sin recargar toda la pagina.
+Manejar loading, saving, deleting, errores 400/404/409/500 y confirmaciones.
+Comprender el riesgo de eliminar un Cliente que tiene Vehiculos asociados.
+Defender el recorrido completo desde una accion de UI hasta PostgreSQL y de regreso a React.
+2. Punto de partida y contrato REST
+La Guia 06 supone que la Guia 05 ya funciona: React puede llegar al backend, CORS esta configurado, existe apiClient y el GET/POST basico de Cliente fue probado. Antes de programar, confirme el contrato real en Swagger.
+Operacion
+Metodo y ruta de ejemplo
+Respuesta esperada
+Listar
+GET /api/clientes
+200 + Cliente[]
+Buscar
+GET /api/clientes/{id}
+200 + Cliente / 404
+Crear
+POST /api/clientes
+201 o 200 + Cliente creado
+Actualizar
+PUT /api/clientes/{id}
+200 + Cliente actualizado / 404
+Eliminar
+DELETE /api/clientes/{id}
+204 o 200 / 404 / 409
+
+Fuente de verdad: Las rutas y status anteriores son didacticos. Si Swagger de ParkFlow360 muestra otra ruta, DTO o status, el frontend debe respetar ese contrato.
+
+3. Que significa realmente CRUD sobre HTTP
+CRUD
+HTTP
+Intencion
+Idempotencia didactica
+Read
+GET
+Leer sin modificar el recurso.
+Si, repetir debe conservar el mismo efecto. 
+Create
+POST
+Crear un nuevo recurso bajo la coleccion.
+No necesariamente; repetir puede duplicar.
+Update
+PUT
+Reemplazar/actualizar la representacion indicada.
+Si, repetir el mismo PUT debe dejar el mismo estado.
+Delete
+DELETE
+Eliminar el recurso indicado.
+Si respecto del estado final: queda eliminado.
+
+Defensa: El estudiante no debe responder que PUT y POST son "casi lo mismo". POST crea bajo una coleccion; PUT actua sobre un recurso identificado y su semantica es idempotente.
+
+4. Contratos TypeScript para crear y actualizar
+features/clientes/types/ClienteRequests.ts
+import type { Cliente } from '../models/Cliente';
+
+export type ClienteCreateRequest = Omit<Cliente, 'id'>;
+export type ClienteUpdateRequest = Omit<Cliente, 'id'>;
+
+Aunque ambos tipos tengan hoy la misma forma, se nombran por intencion. Si manana el backend exige campos diferentes para crear y editar, el cambio queda localizado.
+features/clientes/services/clienteService.ts
+import { apiFetch } from '../../../api/apiClient';
+import type { Cliente } from '../models/Cliente';
+import type {
+  ClienteCreateRequest,
+  ClienteUpdateRequest,
+} from '../types/ClienteRequests';
+
+export const clienteService = {
+  listar(signal?: AbortSignal): Promise<Cliente[]> {
+    return apiFetch<Cliente[]>('/clientes', { signal });
+  },
+
+  obtenerPorId(id: number, signal?: AbortSignal): Promise<Cliente> {
+    return apiFetch<Cliente>(`/clientes/${id}`, { signal });
+  },
+
+  crear(data: ClienteCreateRequest): Promise<Cliente> {
+    return apiFetch<Cliente>('/clientes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  actualizar(id: number, data: ClienteUpdateRequest): Promise<Cliente> {
+    return apiFetch<Cliente>(`/clientes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  eliminar(id: number): Promise<void> {
+    return apiFetch<void>(`/clientes/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+Diseño: El componente no construye URLs ni conoce headers. Expresa intenciones: clienteService.actualizar(7, data) o clienteService.eliminar(7).
+
+5. Convertir ClienteTable en componente con acciones
+ClienteTable.tsx - props de eventos
+import type { Cliente } from '../models/Cliente';
+
+interface ClienteTableProps {
+  clientes: Cliente[];
+  onEdit: (id: number) => void;
+  onDelete: (cliente: Cliente) => void;
+  deletingId?: number | null;
+}
+
+export default function ClienteTable({
+  clientes,
+  onEdit,
+  onDelete,
+  deletingId,
+}: ClienteTableProps) {
+  return (
+    <table className="data-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Nombre</th><th>Documento</th>
+          <th>Email</th><th>Estado</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {clientes.map((cliente) => (
+          <tr key={cliente.id}>
+            <td>{cliente.id}</td>
+            <td>{cliente.nombre} {cliente.apellido}</td>
+            <td>{cliente.documento}</td>
+            <td>{cliente.email}</td>
+            <td>{cliente.activo ? 'Activo' : 'Inactivo'}</td>
+            <td className="actions-cell">
+              <button type="button" onClick={() => onEdit(cliente.id)}>
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(cliente)}
+                disabled={deletingId === cliente.id}
+              >
+                {deletingId === cliente.id ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+Separacion: La tabla solicita una accion mediante callbacks. No debe importar clienteService ni decidir como se actualiza PostgreSQL.
+
+6. GET/{id}: seleccionar un Cliente para editar
+Aunque la fila ya contiene datos, en esta guia usamos GET/{id} para practicar el endpoint y obtener una copia actual del recurso antes de editar.
+ClientesPage.tsx - cargar detalle antes de editar
+const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
+const [loadingDetail, setLoadingDetail] = useState(false);
+
+const handleEdit = async (id: number) => {
+  try {
+    setLoadingDetail(true);
+    setError('');
+    const cliente = await clienteService.obtenerPorId(id);
+    setEditingCliente(cliente);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'No se pudo cargar el cliente');
+  } finally {
+    setLoadingDetail(false);
+  }
+};
+
+Si el recurso ya no existe, el backend puede responder 404 y no se debe abrir un formulario con datos viejos.
+En una aplicacion grande el listado puede devolver un resumen y GET/{id} un detalle mas completo.
+Si el proyecto garantiza que la fila contiene todo y no necesita refrescar, se puede editar directamente con el objeto de la fila; aqui se practica deliberadamente GET/{id}.
+7. Un solo ClienteForm para Crear y Editar
+ClienteForm.tsx - modo create/edit
+interface ClienteFormProps {
+  cliente?: Cliente | null;
+  onSaved: (cliente: Cliente, mode: 'create' | 'edit') => void;
+  onCancelEdit?: () => void;
+}
+
+const initialClienteForm: ClienteFormData = {
+  nombre: '',
+  apellido: '',
+  documento: '',
+  telefono: '',
+  email: '',
+  activo: true,
+};
+
+export default function ClienteForm({
+  cliente,
+  onSaved,
+  onCancelEdit,
+}: ClienteFormProps) {
+  const [formData, setFormData] = useState(initialClienteForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState('');
+
+  const isEditing = cliente != null;
+
+  useEffect(() => {
+    if (cliente) {
+      setFormData({
+        nombre: cliente.nombre,
+        apellido: cliente.apellido,
+        documento: cliente.documento,
+        telefono: cliente.telefono,
+        email: cliente.email,
+        activo: cliente.activo,
+      });
+    } else {
+      setFormData(initialClienteForm);
+    }
+    setErrors({});
+    setApiError('');
+  }, [cliente]);
+
+  // ... handleChange y validarCliente de la Guia 04
+}
+
+Por que useEffect aqui: El Effect sincroniza el estado editable del formulario cuando cambia la prop cliente. No realiza una mutacion HTTP automatica.
+
+8. POST o PUT segun el modo del formulario
+ClienteForm.tsx - handleSubmit
+const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  setApiError('');
+
+  const validationErrors = validarCliente(formData);
+  setErrors(validationErrors);
+  if (Object.keys(validationErrors).length > 0) return;
+
+  const payload = {
+    nombre: formData.nombre.trim(),
+    apellido: formData.apellido.trim(),
+    documento: formData.documento.trim(),
+    telefono: formData.telefono.trim(),
+    email: formData.email.trim().toLowerCase(),
+    activo: formData.activo,
+  };
+
+  try {
+    setSaving(true);
+
+    if (cliente) {
+      const actualizado = await clienteService.actualizar(cliente.id, payload);
+      onSaved(actualizado, 'edit');
+    } else {
+      const creado = await clienteService.crear(payload);
+      onSaved(creado, 'create');
+      setFormData(initialClienteForm);
+    }
+  } catch (err) {
+    setApiError(err instanceof Error ? err.message : 'No se pudo guardar');
+  } finally {
+    setSaving(false);
+  }
+};
+
+ClienteForm.tsx - controles del modo
+<h2>{isEditing ? `Editar cliente #${cliente.id}` : 'Nuevo cliente'}</h2>
+
+<button type="submit" disabled={saving}>
+  {saving
+    ? 'Guardando...'
+    : isEditing
+      ? 'Actualizar cliente'
+      : 'Crear cliente'}
+</button>
+
+{isEditing && (
+  <button type="button" onClick={onCancelEdit} disabled={saving}>
+    Cancelar edicion
+  </button>
+)}
+
+Regla: Nunca decidir entre POST y PUT mirando si el nombre del boton dice "Guardar". La decision depende de si existe un recurso persistido identificado por id.
+
+9. Sincronizar ClientesPage despues de Crear o Editar
+ClientesPage.tsx - actualizar estado local
+const handleSaved = (saved: Cliente, mode: 'create' | 'edit') => {
+  setClientes((prev) => {
+    if (mode === 'create') {
+      return [...prev, saved];
+    }
+
+    return prev.map((cliente) =>
+      cliente.id === saved.id ? saved : cliente,
+    );
+  });
+
+  setEditingCliente(null);
+};
+
+Hay dos estrategias validas para sincronizar la interfaz despues de una mutacion:
+Estrategia
+Ventaja
+Costo/consideracion
+Actualizar estado local
+Rapida; evita GET adicional.
+Debe usar la respuesta real del backend y mantener la logica correcta.
+Volver a listar
+Simple y confirma el estado servidor.
+Hace una peticion GET adicional.
+
+Esta guia: Usaremos actualizacion local con el objeto devuelto por POST/PUT. En situaciones complejas puede ser preferible invalidar/refrescar datos.
+
+10. DELETE con confirmacion y manejo de relacion 1:N
+ClientesPage.tsx - eliminar
+const [deletingId, setDeletingId] = useState<number | null>(null);
+
+const handleDelete = async (cliente: Cliente) => {
+  const confirmed = window.confirm(
+    `¿Eliminar a ${cliente.nombre} ${cliente.apellido}?`,
+  );
+
+  if (!confirmed) return;
+
+  try {
+    setDeletingId(cliente.id);
+    setError('');
+    await clienteService.eliminar(cliente.id);
+
+    setClientes((prev) =>
+      prev.filter((item) => item.id !== cliente.id),
+    );
+
+    if (editingCliente?.id === cliente.id) {
+      setEditingCliente(null);
+    }
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'No se pudo eliminar');
+  } finally {
+    setDeletingId(null);
+  }
+};
+
+DELETE y body: En el caso normal, el id viaja en la URL y no necesitamos enviar body. Un DELETE exitoso puede devolver 204 No Content; apiClient ya contempla ese caso.
+
+Relacion 1:N: Si Cliente tiene Vehiculos asociados, el backend puede impedir el DELETE por integridad referencial o regla de negocio y responder, por ejemplo, 409. React debe mostrar el error; NO debe ocultarlo borrando la fila de la UI.
+
+11. Integracion de ClientesPage
+ClientesPage.tsx - estructura final
+export default function ClientesPage() {
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        const data = await clienteService.listar(controller.signal);
+        setClientes(data);
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          setError(err instanceof Error ? err.message : 'Error al listar');
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => controller.abort();
+  }, []);
+
+  // handleEdit, handleSaved y handleDelete definidos en esta guia
+
+  if (loading) return <div className="state-card">Cargando clientes...</div>;
+
+  return (
+    <section className="page-stack">
+      <header>
+        <h1>Clientes</h1>
+        <p>CRUD completo conectado con Spring Boot.</p>
+      </header>
+
+      {error && <div className="state-card error">{error}</div>}
+      {loadingDetail && <div className="state-card">Cargando detalle...</div>}
+
+      <ClienteForm
+        cliente={editingCliente}
+        onSaved={handleSaved}
+        onCancelEdit={() => setEditingCliente(null)}
+      />
+
+      <ClienteTable
+        clientes={clientes}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        deletingId={deletingId}
+      />
+    </section>
+  );
+}
+
+12. UX minima para acciones CRUD
+CSS sugerido
+.page-stack {
+  display: grid;
+  gap: 20px;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actions-cell button,
+.form-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 7px;
+}
+
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.state-card.error {
+  background: #fdecec;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+Deshabilitar el boton que esta ejecutando DELETE evita acciones repetidas.
+Durante PUT, el boton del formulario debe mostrar Guardando/Actualizando.
+Cancelar edicion debe volver al modo Crear sin enviar HTTP.
+Un error no debe borrar silenciosamente datos de la UI.
+13. Flujos que el estudiante debe poder dibujar
+Accion
+Flujo resumido
+Listar
+Page -> clienteService.listar -> GET -> Controller -> Service -> Repository -> SELECT -> JSON -> setClientes.
+Editar
+Click -> GET/{id} -> JSON -> editingCliente -> ClienteForm carga datos -> PUT -> UPDATE -> respuesta -> map() reemplaza fila.
+Crear
+Submit -> validacion -> POST -> INSERT -> objeto con id -> array agrega fila.
+Eliminar
+Click -> confirm -> DELETE/{id} -> regla/integridad -> 204 -> filter() quita fila.
+
+Defensa extrema: El alumno debe poder señalar en que momento existe un objeto JavaScript, cuando viaja JSON, donde actua JPA y cuando React vuelve a renderizar.
+
+14. Diagnostico de fallos del CRUD
+Sintoma
+Probable causa
+Que revisar
+GET/{id} 404
+Id inexistente o ruta incorrecta
+Network + Swagger + PathVariable.
+PUT 400
+Payload invalido
+Request Payload + DTO + validaciones backend.
+PUT 404
+Recurso eliminado/cambio de id
+Respuesta y logs de Spring.
+DELETE 409
+Regla/integridad por Vehiculos
+Response + FK/regla de negocio.
+DELETE 204 pero fila sigue
+No se actualizo estado React
+filter() o recarga de lista.
+UI muestra cambios pero BD no
+Se modifico estado local sin esperar backend
+Confirmar PUT/POST exitoso en Network.
+Edicion muestra otro cliente
+Estado editingCliente desincronizado
+GET/{id}, props y useEffect del form.
+Doble actualizacion
+Submit repetido
+saving + disabled + handlers.
+
+15. Practica evaluada
+El estudiante debe implementar el CRUD completo de la entidad padre de su propio proyecto 1:N, no limitarse a copiar Cliente.
+Implementar listar, buscar por id, crear, actualizar y eliminar en su service.
+Agregar botones Editar y Eliminar a su tabla mediante callbacks.
+Usar un mismo formulario para modo crear y modo editar.
+Cargar por GET/{id} antes de editar o justificar tecnicamente por que usa el objeto de la fila.
+Sincronizar la lista despues de POST, PUT y DELETE.
+Implementar Cancelar edicion.
+Bloquear acciones mientras save/delete estan en curso.
+Demostrar un 404 real o simulado y explicar la respuesta.
+Probar que sucede al eliminar la entidad padre cuando posee entidades hijas.
+Entregar evidencia de Network para GET, POST, PUT y DELETE.
+16. Defensa oral - 35 preguntas
+1. ¿Que operaciones incluye CRUD y con que metodos HTTP las implementamos?
+2. ¿Cual es la diferencia entre GET /clientes y GET /clientes/{id}?
+3. ¿Por que practicamos GET/{id} antes de editar aunque la tabla ya tenga datos?
+4. ¿Que representa el id en la URL?
+5. ¿Que diferencia existe entre POST /clientes y PUT /clientes/7?
+6. ¿Por que POST no es necesariamente idempotente?
+7. ¿Por que PUT se considera idempotente?
+8. ¿Por que DELETE se considera idempotente respecto del estado final?
+9. ¿Que responsabilidad tiene ClienteTable?
+10. ¿Por que ClienteTable no deberia llamar clienteService directamente?
+11. ¿Que es editingCliente?
+12. ¿Como sabe ClienteForm si esta creando o editando?
+13. ¿Por que el formulario usa useEffect cuando cambia la prop cliente?
+14. ¿Por que no se debe ejecutar un PUT automaticamente dentro de ese Effect?
+15. ¿Que diferencia conceptual existe entre ClienteCreateRequest y ClienteUpdateRequest?
+16. ¿Que ocurre cuando el usuario presiona Editar?
+17. ¿Que ocurre cuando presiona Cancelar edicion?
+18. ¿Que datos envia el PUT?
+19. ¿Por que no debemos cambiar la fila antes de confirmar que PUT fue exitoso?
+20. ¿Como reemplazamos solo el Cliente editado dentro del array de React?
+21. ¿Por que usamos map() para actualizar y filter() para eliminar?
+22. ¿Que devuelve normalmente DELETE si el backend usa 204?
+23. ¿Por que apiClient debe soportar una respuesta 204 sin intentar response.json()?
+24. ¿Por que pedimos confirmacion antes de DELETE?
+25. ¿Que significa un 404 durante GET/{id}?
+26. ¿Que significa un 400 durante PUT?
+27. ¿Que podria significar un 409 al eliminar un Cliente?
+28. ¿Que relacion existe entre ese 409 y Cliente 1:N Vehiculo?
+29. ¿Cual es la diferencia entre borrado fisico y baja logica con activo=false?
+30. ¿Que ventaja tiene actualizar el estado local despues de PUT?
+31. ¿Que ventaja tiene volver a ejecutar GET despues de una mutacion?
+32. ¿Como evita la UI un doble DELETE o doble PUT?
+33. ¿Que debe mirar en DevTools Network para diagnosticar un CRUD?
+34. Explique el PUT completo desde el boton Actualizar hasta PostgreSQL y el re-render.
+35. Explique el DELETE completo y que pasa si existen Vehiculos asociados.
+Regla de defensa: Cada respuesta debe identificar capa, metodo HTTP, URL, status, cambio en PostgreSQL y cambio de estado en React cuando corresponda.
+
+17. Checklist final del estudiante
+[ ] clienteService posee listar, obtenerPorId, crear, actualizar y eliminar.
+[ ] ClienteTable recibe onEdit/onDelete y no importa clienteService.
+[ ] GET/{id} carga el recurso seleccionado para editar.
+[ ] ClienteForm sirve tanto para crear como para editar.
+[ ] Cancelar edicion vuelve al modo Nuevo Cliente sin request HTTP.
+[ ] POST agrega la respuesta real del backend a la lista.
+[ ] PUT reemplaza solo la fila actualizada.
+[ ] DELETE confirma antes de ejecutar y maneja 204.
+[ ] Un fallo DELETE/PUT no altera falsamente la UI.
+[ ] Puedo explicar que ocurre si Cliente tiene Vehiculos asociados.
+[ ] Puedo diagnosticar 400, 404, 409 y 500 con Network y logs.
+[ ] Puedo defender de memoria los cuatro flujos CRUD completos.
+18. Cierre y preparacion para la Guia 07
+Al finalizar la Guia 06, Cliente ya posee un CRUD completo y defendible de extremo a extremo. La siguiente guia aplicara el mismo patron a Vehiculo incorporando de forma central la relacion Cliente 1:N, seleccion de propietario, cambios de propietario y reglas de integridad.
+Siguiente guia: Guia 07 - CRUD completo de Vehiculo + relacion Cliente 1:N: GET/POST/PUT/DELETE, selector de propietario, edicion de FK, filtros por cliente y validaciones de relacion.
+
+Fuentes oficiales: Spring - Building REST services / request mappings | MDN - HTTP methods, Fetch API, Response.ok y DELETE. El contrato efectivo del proyecto debe verificarse siempre en Swagger/OpenAPI y en los Controller/DTO reales de ParkFlow360.
+

@@ -1,0 +1,559 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 07
+CRUD COMPLETO DE VEHICULO + RELACION CLIENTE 1:N
+GET - POST - PUT - DELETE - selector de propietario - FK clienteId - filtros por Cliente
+Version
+ESTUDIANTE
+Proyecto
+ParkFlow360 - React + TypeScript + Vite + WebStorm + Spring Boot
+Meta
+Dominar el CRUD de la entidad hija y defender como se representa, valida y modifica la relacion Cliente 1:N.
+Secuencia: Guia 01 -> 02 -> 03 -> 04 -> 05 -> 06 -> GUIA 07 -> 08 -> 09 -> 10
+
+Indice de contenidos
+1. Objetivos
+2. Contrato REST
+3. Relacion Cliente 1:N
+4. Tipos
+5. vehiculoService
+6. Carga doble
+7. Selector Cliente
+8. Validacion
+9. Crear/editar
+10. Tabla + propietario
+11. Filtro
+12. Sincronizacion
+13. VehiculosPage
+14. Diagnostico
+15. Flujos
+16. Practica
+17. 40 preguntas
+18. Checklist
+19. Siguiente guia
+1. Objetivos de aprendizaje
+Completar el CRUD real de Vehiculo consumiendo Spring Boot.
+Modelar correctamente la dependencia Vehiculo -> Cliente mediante clienteId.
+Cargar Clientes para construir un selector controlado de propietario.
+Convertir los valores string del formulario a tipos de dominio antes de enviar el payload.
+Permitir cambiar el propietario de un Vehiculo durante la edicion mediante PUT.
+Mostrar en la tabla el nombre del propietario sin duplicar logica HTTP dentro de VehiculoTable.
+Filtrar Vehiculos por Cliente y explicar la diferencia entre filtrado frontend y endpoint backend.
+Manejar errores de FK, Cliente inexistente, placa duplicada y datos invalidos.
+Defender el flujo completo React -> HTTP -> Spring -> JPA -> PostgreSQL y regreso a React.
+2. Punto de partida y contrato REST
+La Guia 07 parte del CRUD de Cliente ya terminado. Antes de implementar Vehiculo, revise Swagger y confirme los DTO reales. En esta guia se usara el siguiente contrato didactico de referencia:
+Operacion
+Metodo y ruta de ejemplo
+Respuesta esperada
+Listar Vehiculos
+GET /api/vehiculos
+200 + Vehiculo[]
+Buscar Vehiculo
+GET /api/vehiculos/{id}
+200 + Vehiculo / 404
+Crear
+POST /api/vehiculos
+201 o 200 + Vehiculo
+Actualizar
+PUT /api/vehiculos/{id}
+200 + Vehiculo / 404
+Eliminar
+DELETE /api/vehiculos/{id}
+204 o 200 / 404 / 409
+Listar Clientes
+GET /api/clientes
+200 + Cliente[] para el selector
+
+Fuente de verdad: Si Swagger devuelve un objeto Cliente anidado en vez de clienteId, o usa otra ruta/DTO, adapte los tipos y mappers. Nunca fuerce el frontend a un contrato imaginado.
+
+3. La relacion Cliente 1:N vista desde el frontend
+En el dominio, un Cliente puede tener muchos Vehiculos; cada Vehiculo pertenece a un Cliente. En el frontend, la forma mas simple de representar la referencia es conservar el identificador del propietario.
+features/vehiculos/models/Vehiculo.ts
+export interface Vehiculo {
+  id: number;
+  placa: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color: string;
+  clienteId: number;
+  activo: boolean;
+}
+
+Capa
+Representacion de la relacion
+PostgreSQL
+vehiculo.cliente_id referencia a cliente.id mediante FK.
+JPA
+Vehiculo posee una relacion ManyToOne hacia Cliente o un DTO equivalente.
+JSON
+Puede exponerse como clienteId o como un objeto cliente, segun el contrato.
+React
+El formulario controla clienteId y la tabla resuelve el nombre del Cliente.
+
+Idea central: N:M no aparece aqui. Desde Vehiculo, la relacion es muchos Vehiculos -> un Cliente. El selector debe permitir elegir exactamente un propietario.
+
+4. Tipos de formulario y payload
+VehiculoFormData vs VehiculoRequest
+export interface VehiculoFormData {
+  placa: string;
+  marca: string;
+  modelo: string;
+  anio: string;
+  color: string;
+  clienteId: string;
+  activo: boolean;
+}
+
+export interface VehiculoRequest {
+  placa: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color: string;
+  clienteId: number;
+  activo: boolean;
+}
+
+Por que string: Un <input> y un <select> controlados manejan value como string de forma natural. El usuario puede tener temporalmente un valor vacio; por eso se valida primero y despues se convierte anio/clienteId con Number(...).
+
+5. vehiculoService: CRUD completo
+features/vehiculos/services/vehiculoService.ts
+import { apiFetch } from '../../../api/apiClient';
+import type { Vehiculo } from '../models/Vehiculo';
+import type { VehiculoRequest } from '../types/VehiculoFormData';
+
+export const vehiculoService = {
+  listar(signal?: AbortSignal): Promise<Vehiculo[]> {
+    return apiFetch<Vehiculo[]>('/vehiculos', { signal });
+  },
+
+  obtenerPorId(id: number, signal?: AbortSignal): Promise<Vehiculo> {
+    return apiFetch<Vehiculo>(`/vehiculos/${id}`, { signal });
+  },
+
+  crear(data: VehiculoRequest): Promise<Vehiculo> {
+    return apiFetch<Vehiculo>('/vehiculos', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  actualizar(id: number, data: VehiculoRequest): Promise<Vehiculo> {
+    return apiFetch<Vehiculo>(`/vehiculos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  eliminar(id: number): Promise<void> {
+    return apiFetch<void>(`/vehiculos/${id}`, { method: 'DELETE' });
+  },
+};
+
+Para alimentar el selector de propietario reutilizaremos clienteService.listar(). No duplique un segundo servicio de Clientes dentro de features/vehiculos.
+6. Cargar Vehiculos y Clientes
+VehiculosPage.tsx - carga inicial
+const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+const [clientes, setClientes] = useState<Cliente[]>([]);
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState('');
+
+useEffect(() => {
+  const controller = new AbortController();
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      const [vehiculosData, clientesData] = await Promise.all([
+        vehiculoService.listar(controller.signal),
+        clienteService.listar(controller.signal),
+      ]);
+
+      setVehiculos(vehiculosData);
+      setClientes(clientesData);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setError(err instanceof Error ? err.message : 'Error al cargar datos');
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  };
+
+  void load();
+  return () => controller.abort();
+}, []);
+
+Promise.all: Las dos consultas son independientes; pueden ejecutarse en paralelo. Si una falla, en este ejemplo tratamos la carga inicial como fallida y mostramos el error.
+
+7. Selector controlado de propietario
+VehiculoForm.tsx - <select> controlado
+interface VehiculoFormProps {
+  clientes: Cliente[];
+  vehiculo?: Vehiculo | null;
+  onSaved: (vehiculo: Vehiculo, mode: 'create' | 'edit') => void;
+  onCancelEdit?: () => void;
+}
+
+<label>
+  Propietario
+  <select
+    name="clienteId"
+    value={formData.clienteId}
+    onChange={handleChange}
+    required
+  >
+    <option value="">Seleccione un cliente</option>
+    {clientes
+      .filter((cliente) => cliente.activo)
+      .map((cliente) => (
+        <option key={cliente.id} value={String(cliente.id)}>
+          {cliente.nombre} {cliente.apellido} - {cliente.documento}
+        </option>
+      ))}
+  </select>
+</label>
+
+value representa el estado actual del select y onChange debe actualizarlo.
+No use selected en <option> cuando controla el <select> con React.
+El value de cada opcion se maneja como string; antes de enviar se convierte a number.
+Filtrar Clientes inactivos es una regla de UI de ejemplo; el backend tambien debe validar la regla real.
+8. Validar la relacion antes de construir el payload
+Validacion de Vehiculo y propietario
+const validarVehiculo = (
+  data: VehiculoFormData,
+  clientes: Cliente[],
+) => {
+  const errors: Record<string, string> = {};
+
+  if (!data.placa.trim()) errors.placa = 'La placa es obligatoria';
+  if (!data.marca.trim()) errors.marca = 'La marca es obligatoria';
+
+  const anio = Number(data.anio);
+  if (!Number.isInteger(anio) || anio < 1900 || anio > 2100) {
+    errors.anio = 'Ingrese un anio valido';
+  }
+
+  const clienteId = Number(data.clienteId);
+  const clienteExiste = clientes.some(
+    (cliente) => cliente.id === clienteId && cliente.activo,
+  );
+
+  if (!clienteExiste) {
+    errors.clienteId = 'Seleccione un cliente valido y activo';
+  }
+
+  return errors;
+};
+
+Construccion del payload despues de validar
+const payload: VehiculoRequest = {
+  placa: formData.placa.trim().toUpperCase(),
+  marca: formData.marca.trim(),
+  modelo: formData.modelo.trim(),
+  anio: Number(formData.anio),
+  color: formData.color.trim(),
+  clienteId: Number(formData.clienteId),
+  activo: formData.activo,
+};
+
+Seguridad de reglas: Validar en React mejora UX, pero no sustituye la validacion en Spring Boot. El backend debe comprobar que clienteId existe y que la asignacion esta permitida.
+
+9. Crear y editar Vehiculo con cambio de propietario
+VehiculoForm.tsx - precarga en modo editar
+useEffect(() => {
+  if (vehiculo) {
+    setFormData({
+      placa: vehiculo.placa,
+      marca: vehiculo.marca,
+      modelo: vehiculo.modelo,
+      anio: String(vehiculo.anio),
+      color: vehiculo.color,
+      clienteId: String(vehiculo.clienteId),
+      activo: vehiculo.activo,
+    });
+  } else {
+    setFormData(initialVehiculoForm);
+  }
+  setErrors({});
+  setApiError('');
+}, [vehiculo]);
+
+VehiculoForm.tsx - POST o PUT
+if (vehiculo) {
+  const actualizado = await vehiculoService.actualizar(
+    vehiculo.id,
+    payload,
+  );
+  onSaved(actualizado, 'edit');
+} else {
+  const creado = await vehiculoService.crear(payload);
+  onSaved(creado, 'create');
+  setFormData(initialVehiculoForm);
+}
+
+Cambio de propietario: Editar clienteId y ejecutar PUT significa reasignar el Vehiculo a otro Cliente. La UI solo propone la nueva referencia; Spring Boot y la BD deben validar y persistir la nueva FK.
+
+10. Mostrar el propietario en VehiculoTable
+VehiculoTable.tsx - resolver nombre del Cliente
+interface VehiculoTableProps {
+  vehiculos: Vehiculo[];
+  clientes: Cliente[];
+  onEdit: (id: number) => void;
+  onDelete: (vehiculo: Vehiculo) => void;
+  deletingId?: number | null;
+}
+
+const clientePorId = new Map(
+  clientes.map((cliente) => [cliente.id, cliente]),
+);
+
+// Dentro del map de vehiculos:
+const propietario = clientePorId.get(vehiculo.clienteId);
+
+<td>
+  {propietario
+    ? `${propietario.nombre} ${propietario.apellido}`
+    : `Cliente #${vehiculo.clienteId}`}
+</td>
+
+Separacion: VehiculoTable recibe ambos arrays. No hace GET por cada fila. Evitamos el patron N+1 desde el navegador y mantenemos la tabla sin side effects.
+
+11. Filtrar Vehiculos por Cliente
+VehiculosPage.tsx - filtro local
+const [clienteFiltro, setClienteFiltro] = useState('');
+
+const vehiculosVisibles = clienteFiltro === ''
+  ? vehiculos
+  : vehiculos.filter(
+      (vehiculo) => vehiculo.clienteId === Number(clienteFiltro),
+    );
+
+Selector de filtro
+<select
+  value={clienteFiltro}
+  onChange={(e) => setClienteFiltro(e.target.value)}
+>
+  <option value="">Todos los clientes</option>
+  {clientes.map((cliente) => (
+    <option key={cliente.id} value={String(cliente.id)}>
+      {cliente.nombre} {cliente.apellido}
+    </option>
+  ))}
+</select>
+
+Estrategia
+Cuando conviene
+Consideracion
+Filtro en React
+Lista pequena ya cargada.
+No hace request adicional; filtra memoria local.
+Endpoint backend
+Muchos datos, paginacion o reglas complejas.
+Ej.: GET /vehiculos?clienteId=7 si el API lo soporta.
+
+12. Sincronizar POST, PUT y DELETE
+VehiculosPage.tsx - sincronizacion
+const handleSaved = (saved: Vehiculo, mode: 'create' | 'edit') => {
+  setVehiculos((prev) =>
+    mode === 'create'
+      ? [...prev, saved]
+      : prev.map((item) => item.id === saved.id ? saved : item),
+  );
+  setEditingVehiculo(null);
+};
+
+const handleDelete = async (vehiculo: Vehiculo) => {
+  if (!window.confirm(`¿Eliminar el vehiculo ${vehiculo.placa}?`)) return;
+
+  try {
+    setDeletingId(vehiculo.id);
+    setError('');
+    await vehiculoService.eliminar(vehiculo.id);
+    setVehiculos((prev) => prev.filter((v) => v.id !== vehiculo.id));
+    if (editingVehiculo?.id === vehiculo.id) setEditingVehiculo(null);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'No se pudo eliminar');
+  } finally {
+    setDeletingId(null);
+  }
+};
+
+Regla: La UI solo cambia despues de una respuesta exitosa. Si el backend rechaza la placa, el cliente o el DELETE, conserve los datos y muestre el error.
+
+13. Estructura final de VehiculosPage
+VehiculosPage.tsx - integracion
+export default function VehiculosPage() {
+  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [editingVehiculo, setEditingVehiculo] = useState<Vehiculo | null>(null);
+  const [clienteFiltro, setClienteFiltro] = useState('');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // useEffect de carga inicial
+  // handleEdit -> GET /vehiculos/{id}
+  // handleSaved -> POST/PUT + sincronizacion
+  // handleDelete -> DELETE + filter
+
+  const vehiculosVisibles = clienteFiltro === ''
+    ? vehiculos
+    : vehiculos.filter(
+        (v) => v.clienteId === Number(clienteFiltro),
+      );
+
+  if (loading) return <div className="state-card">Cargando...</div>;
+
+  return (
+    <section className="page-stack">
+      <header>
+        <h1>Vehiculos</h1>
+        <p>CRUD completo + relacion Cliente 1:N.</p>
+      </header>
+
+      {error && <div className="state-card error">{error}</div>}
+
+      <VehiculoForm
+        clientes={clientes}
+        vehiculo={editingVehiculo}
+        onSaved={handleSaved}
+        onCancelEdit={() => setEditingVehiculo(null)}
+      />
+
+      {/* selector clienteFiltro */}
+
+      <VehiculoTable
+        vehiculos={vehiculosVisibles}
+        clientes={clientes}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        deletingId={deletingId}
+      />
+    </section>
+  );
+}
+
+14. Diagnostico de fallos de relacion y CRUD
+Sintoma
+Probable causa
+Que revisar
+POST 400
+anio/tipos/DTO invalidos
+Request Payload + validaciones backend.
+POST/PUT 404
+clienteId no existe o recurso objetivo no existe
+Swagger, FK y Service.
+POST/PUT 409
+placa duplicada o conflicto de negocio
+Response, constraint UNIQUE, reglas.
+Selector vacio
+Clientes no cargaron o fueron filtrados
+GET /clientes + estado clientes.
+Propietario incorrecto
+clienteId desincronizado
+Payload, respuesta y Map de clientes.
+PUT no cambia propietario
+Backend ignora la referencia
+DTO, mapper, Service y JPA relation.
+Tabla hace muchas requests
+GET por fila
+Cargar Clientes una vez y resolver localmente.
+Filtro no devuelve resultados
+Comparacion string vs number
+Number(clienteFiltro) y tipos.
+
+15. Flujos que el estudiante debe poder dibujar
+Accion
+Flujo resumido
+Crear Vehiculo
+Form -> validar Cliente -> POST -> Controller -> Service valida Cliente -> JPA INSERT con FK -> JSON -> setVehiculos.
+Editar propietario
+GET/{id} -> form precarga clienteId -> seleccionar otro Cliente -> PUT -> UPDATE cliente_id -> respuesta -> map().
+Mostrar propietario
+Vehiculos + Clientes -> Map por id -> VehiculoTable muestra nombre sin request por fila.
+Filtrar
+clienteFiltro -> Number -> filter por clienteId -> re-render sin tocar backend.
+Eliminar
+Confirm -> DELETE/{id} -> backend -> 204 -> filter; si falla, conservar fila.
+
+Defensa extrema: El estudiante debe identificar claramente que el usuario elige un Cliente por nombre, pero el request persiste una referencia identificada por clienteId.
+
+16. Practica evaluada
+Cada estudiante debe repetir el patron sobre la entidad hija de su propio proyecto 1:N, no limitarse a copiar Vehiculo.
+Implementar CRUD completo de la entidad hija.
+Cargar la entidad padre para construir un selector controlado.
+Impedir que se envie una referencia padre vacia o invalida.
+Permitir cambiar la entidad padre durante la edicion.
+Mostrar en la tabla un dato descriptivo de la entidad padre, no solo el id.
+Agregar un filtro por entidad padre.
+Demostrar POST y PUT desde DevTools Network con el id de la entidad padre.
+Provocar o simular un error de referencia inexistente y explicarlo.
+Demostrar que la tabla no hace una peticion HTTP por cada fila.
+Defender el recorrido completo hasta la FK en PostgreSQL.
+17. Defensa oral - 40 preguntas
+1. ¿Por que Vehiculo es la entidad hija en la relacion Cliente 1:N?
+2. ¿Que significa clienteId dentro del modelo/DTO del frontend?
+3. ¿Donde existe realmente la clave foranea?
+4. ¿Por que no afirmamos que clienteId es exactamente lo mismo que @ManyToOne?
+5. ¿Que endpoints necesita el CRUD de Vehiculo?
+6. ¿Por que tambien necesitamos GET /clientes en esta pantalla?
+7. ¿Por que el selector de Cliente debe ser controlado?
+8. ¿Que propiedades necesita un select controlado en React?
+9. ¿Por que no usamos selected en cada option?
+10. ¿Por que clienteId se guarda inicialmente como string en VehiculoFormData?
+11. ¿En que momento clienteId se convierte a number?
+12. ¿Que ocurre si Number(clienteId) produce NaN?
+13. ¿Por que React valida que el Cliente exista si Spring tambien lo valida?
+14. ¿Por que la validacion del frontend no es suficiente para integridad?
+15. ¿Que significa que un Cliente tenga muchos Vehiculos?
+16. ¿Puede un Vehiculo tener dos Clientes simultaneamente en este modelo?
+17. ¿Que hace Promise.all en la carga inicial?
+18. ¿Que ventaja tiene cargar Vehiculos y Clientes en paralelo?
+19. ¿Que riesgo tendria hacer GET /clientes/{id} por cada fila de Vehiculo?
+20. ¿Que es el problema N+1 visto desde la UI?
+21. ¿Como resolvemos el nombre del propietario sin request por fila?
+22. ¿Por que usamos Map para resolver Cliente por id?
+23. ¿Que pasa si un Vehiculo referencia un clienteId que no esta en el array?
+24. ¿Como se precarga el propietario al editar un Vehiculo?
+25. ¿Que sucede si el usuario cambia el propietario y presiona Actualizar?
+26. ¿Que debe validar Spring antes de persistir el nuevo clienteId?
+27. ¿Que columna espera cambiar en PostgreSQL al reasignar propietario?
+28. ¿Que diferencia existe entre crear Vehiculo y reasignar propietario?
+29. ¿Como se sincroniza la fila despues de PUT?
+30. ¿Por que usamos la respuesta del backend y no solo el payload enviado?
+31. ¿Como funciona el filtro local por Cliente?
+32. ¿Por que Number(clienteFiltro) es importante?
+33. ¿Cuando conviene filtrar en backend en vez de React?
+34. ¿Puede inventar un endpoint ?clienteId= si Swagger no lo define?
+35. ¿Que podria significar un 409 al crear un Vehiculo?
+36. ¿Que podria significar un 404 relacionado con clienteId?
+37. ¿Que evidencia debe mirar en Network ante un PUT que no cambia propietario?
+38. Explique el POST completo de Vehiculo hasta la FK en PostgreSQL.
+39. Explique el PUT que cambia un Vehiculo de un Cliente a otro.
+40. Explique como React muestra el nombre del Cliente sin duplicarlo dentro de Vehiculo.
+Regla de defensa: No basta decir "se guarda el Cliente". Debe distinguir nombre mostrado, id enviado, validacion del backend, relacion JPA y FK en PostgreSQL.
+
+18. Checklist final del estudiante
+[ ] vehiculoService posee CRUD completo.
+[ ] Cargo Vehiculos y Clientes sin hacer requests por fila.
+[ ] El selector de propietario es controlado con value/onChange.
+[ ] clienteId y anio se validan como string antes de convertirlos.
+[ ] El payload envia clienteId numerico.
+[ ] Puedo crear Vehiculo asignandolo a un Cliente.
+[ ] Puedo editar y cambiar el propietario con PUT.
+[ ] VehiculoTable muestra el nombre del Cliente sin duplicarlo en Vehiculo.
+[ ] El filtro por Cliente funciona con tipos correctos.
+[ ] Un error de backend no altera falsamente la UI.
+[ ] Puedo diagnosticar 400, 404 y 409 usando Network.
+[ ] Puedo explicar la relacion desde el select hasta la FK PostgreSQL.
+
+19. Cierre y preparacion para la Guia 08
+Al finalizar la Guia 07, ParkFlow360 ya posee CRUD completo de Cliente y Vehiculo, incluida la relacion 1:N. La siguiente guia consolidara patrones transversales de estado, efectos, hooks reutilizables, loading, errores y mensajes para reducir duplicacion y preparar una arquitectura frontend mas madura.
+Siguiente guia: Guia 08 - Manejo profesional de estado y efectos: useEffect, hooks reutilizables, loading/error/success, cancelacion, stale requests y patrones de asincronia.
+
+Fuentes oficiales consultadas: React - <select>, <input> y TypeScript; Spring Framework - request mappings y CORS. Contrato efectivo: Swagger/OpenAPI, Controller, DTO y modelo reales de ParkFlow360.
+

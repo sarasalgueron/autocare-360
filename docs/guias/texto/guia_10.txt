@@ -1,0 +1,557 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 10 - FINAL
+INTEGRACION FINAL, DASHBOARD, TESTING, BUILD Y PREPARACION PARA DESPLIEGUE
+React + TypeScript + Vite | Spring Boot | PostgreSQL | Vitest | Testing Library
+ESTUDIANTE
+Secuencia completa: Guia 01 -> 02 -> 03 -> 04 -> 05 -> 06 -> 07 -> 08 -> 09 -> GUIA 10
+Meta final:  Cerrar ParkFlow360 como proyecto Fullstack defendible: interfaz profesional, dashboard, CRUD Cliente/Vehiculo 1:N, pruebas frontend, build de produccion y verificacion completa desde el navegador hasta PostgreSQL.
+
+
+Indice de contenidos
+1. Objetivos finales
+2. Arquitectura final ParkFlow360
+3. Auditoria de integracion
+4. Dashboard ejecutivo
+5. Metricas y estado derivado
+6. Manejo global de errores
+7. ErrorBoundary de React
+8. Estrategia de testing
+9. Instalacion de Vitest + Testing Library
+10. Configuracion del entorno de pruebas
+11. Test de componente presentacional
+12. Test de interaccion
+13. Test de formulario y busqueda
+14. Pruebas de integracion con API
+15. Scripts de calidad
+16. Variables de entorno por modo
+17. Build de produccion con Vite
+18. Preview del build
+19. BrowserRouter y fallback SPA
+20. CORS en produccion
+21. Checklist de despliegue
+22. Matriz de pruebas Fullstack
+23. Practica final integradora
+24. 50 preguntas de defensa final
+25. Checklist de graduacion ParkFlow360
+
+1. Objetivos finales
+Integrar en una sola aplicacion todo lo construido en las nueve guias anteriores.
+Construir un Dashboard que sintetice Clientes y Vehiculos sin duplicar datos de dominio.
+Distinguir errores HTTP, errores de negocio y errores de renderizado de React.
+Agregar una Error Boundary para fallas de render sin confundirla con errores asincronos de fetch.
+Configurar Vitest, jsdom y React Testing Library para pruebas de componentes e interacciones.
+Escribir pruebas que validen comportamiento visible, no detalles internos de implementacion.
+Separar variables de desarrollo y produccion mediante modos de Vite.
+Generar, inspeccionar y probar el build de produccion.
+Preparar el frontend para un hosting estatico con BrowserRouter y fallback a index.html.
+Realizar una validacion Fullstack final desde React hasta PostgreSQL y defender todo el recorrido.
+2. Arquitectura final de ParkFlow360
+Mapa de extremo a extremo
+NAVEGADOR
+  -> React Router / Layout / Pages
+  -> components/ui + features
+  -> hooks (useClientes, useVehiculos)
+  -> services (clienteService, vehiculoService)
+  -> apiClient / fetch
+  -> HTTP / JSON
+  -> Spring Boot Controller
+  -> Application/Service
+  -> Repository
+  -> JPA / Hibernate
+  -> PostgreSQL
+
+Respuesta:
+PostgreSQL -> JPA -> Service -> Controller -> JSON
+-> fetch -> hook -> state -> render -> usuario
+
+Defensa final:  El estudiante no debe memorizar solo archivos. Debe explicar quien tiene cada responsabilidad, que datos cruzan cada frontera y como diagnosticar una falla en cada capa.
+
+3. Auditoria de integracion antes de agregar nuevas funciones
+Capa
+Pregunta de auditoria
+Evidencia esperada
+Routing
+¿/clientes, /vehiculos y / funcionan al recargar?
+BrowserRouter + rutas correctas.
+UI
+¿Los componentes genericos conocen el dominio?
+Button/Modal/Pagination solo usan props.
+Estado
+¿Se evita duplicar estado derivado?
+Filtros y paginas se calculan.
+HTTP
+¿Las Pages llaman fetch directamente?
+No; usan hooks/services.
+Contrato
+¿IDs y payloads coinciden con backend?
+DTO/TypeScript coherentes.
+Relacion
+¿Vehiculo conserva clienteId valido?
+Selector + validacion + FK.
+Errores
+¿Un 409 deja la UI consistente?
+No se elimina localmente si backend rechaza.
+UX
+¿Hay loading, empty, error y confirmaciones?
+Estados visibles y accesibles.
+
+4. Dashboard ejecutivo
+El Dashboard no crea una nueva fuente de verdad. Consume las colecciones ya disponibles y deriva metricas. Para conjuntos grandes, estas metricas deben migrar a endpoints agregados del backend.
+src/components/ui/MetricCard.tsx
+type MetricCardProps = {
+  label: string;
+  value: number;
+  helper?: string;
+};
+
+export function MetricCard({ label, value, helper }: MetricCardProps) {
+  return (
+    <article className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {helper && <small>{helper}</small>}
+    </article>
+  );
+}
+
+DashboardPage: composicion de hooks y metricas
+export function DashboardPage() {
+  const clientes = useClientes();
+  const vehiculos = useVehiculos();
+
+  const loading = clientes.loading || vehiculos.loading;
+  const error = clientes.error ?? vehiculos.error;
+
+  const metrics = {
+    clientesTotal: clientes.data.length,
+    clientesActivos: clientes.data.filter(c => c.activo).length,
+    vehiculosTotal: vehiculos.data.length,
+    vehiculosActivos: vehiculos.data.filter(v => v.activo).length,
+  };
+
+  if (loading) return <p>Cargando dashboard...</p>;
+  if (error) return <p role="alert">{error}</p>;
+
+  return <DashboardMetrics metrics={metrics} />;
+}
+
+Importante:  No guardar clientesActivos o vehiculosTotal en useState si pueden calcularse desde data. Son estado derivado.
+
+5. Metricas y estado derivado
+Metrica
+Fuente
+Calculo
+Clientes totales
+clientes.data
+length
+Clientes activos
+clientes.data
+filter(c => c.activo).length
+Vehiculos totales
+vehiculos.data
+length
+Vehiculos activos
+vehiculos.data
+filter(v => v.activo).length
+Vehiculos por cliente
+vehiculos.data
+filter(v => v.clienteId === id).length
+
+Si el sistema crece a decenas de miles de registros, el Dashboard no deberia descargar todo para contar. En ese escenario, Spring Boot deberia exponer un endpoint de resumen con agregaciones en base de datos.
+6. Manejo global de errores: tres categorias
+Tipo
+Ejemplo
+Donde se maneja
+HTTP / red
+500, timeout, CORS, desconexion
+apiClient / hook / Page
+Negocio
+409 al eliminar Cliente con Vehiculos
+Backend + mensaje en UI
+Render React
+Componente lanza durante render
+ErrorBoundary
+
+No confundir:  Una Error Boundary no reemplaza try/catch en fetch. React documenta que las Error Boundaries no capturan errores asincronos generales ni errores normales de event handlers.
+
+7. ErrorBoundary de React
+src/app/AppErrorBoundary.tsx
+import React from 'react';
+
+type Props = { children: React.ReactNode };
+type State = { hasError: boolean };
+
+export class AppErrorBoundary extends React.Component<Props, State> {
+  state: State = { hasError: false };
+
+  static getDerivedStateFromError(): State {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    console.error('Render error', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <main role="alert"><h1>La interfaz tuvo un problema.</h1></main>;
+    }
+    return this.props.children;
+  }
+}
+
+main.tsx
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </AppErrorBoundary>
+  </StrictMode>
+);
+
+8. Estrategia de testing para ParkFlow360
+El objetivo no es obtener 100% de cobertura. El objetivo es detectar regresiones en comportamientos importantes.
+Nivel
+Que valida
+Ejemplo ParkFlow360
+Funcion pura
+Reglas sin DOM
+normalizar busqueda / paginar array
+Componente
+Salida visible
+StatusBadge / MetricCard
+Interaccion
+Respuesta a usuario
+Pagination / SearchInput
+Integracion UI
+Varios componentes
+ClientesPage con datos mock
+Fullstack manual
+Frontend + backend + BD
+crear Cliente y Vehiculo y verificar PostgreSQL
+
+Principio Testing Library:  Probar la interfaz como la usa una persona: roles, labels, texto y acciones. Evitar depender de detalles internos del componente.
+
+9. Instalacion de Vitest + Testing Library
+Terminal de WebStorm
+npm install -D vitest jsdom \
+  @testing-library/react @testing-library/dom \
+  @testing-library/jest-dom @testing-library/user-event
+
+Vitest comparte la configuracion y el ecosistema de Vite. Para componentes React necesitamos un entorno de DOM simulado; usaremos jsdom.
+10. Configuracion del entorno de pruebas
+vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+  },
+});
+
+src/test/setup.ts
+import '@testing-library/jest-dom/vitest';
+
+package.json - scripts recomendados
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run"
+  }
+}
+
+11. Test de componente presentacional
+StatusBadge.test.tsx
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { StatusBadge } from './StatusBadge';
+
+describe('StatusBadge', () => {
+  it('muestra Activo cuando active es true', () => {
+    render(<StatusBadge active />);
+    expect(screen.getByText('Activo')).toBeInTheDocument();
+  });
+});
+
+El test afirma comportamiento visible. No inspecciona variables internas ni el useState del componente.
+12. Test de interaccion con user-event
+Pagination.test.tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { Pagination } from './Pagination';
+
+it('solicita la pagina siguiente', async () => {
+  const user = userEvent.setup();
+  const onPageChange = vi.fn();
+
+  render(<Pagination page={1} totalPages={3} onPageChange={onPageChange} />);
+  await user.click(screen.getByRole('button', { name: /siguiente/i }));
+
+  expect(onPageChange).toHaveBeenCalledWith(2);
+});
+
+13. Test de formulario y busqueda
+Ejemplo de interaccion controlada
+it('actualiza el texto de busqueda', async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+
+  render(<SearchInput value="" onChange={onChange} />);
+  await user.type(screen.getByRole('searchbox'), 'ana');
+
+  expect(onChange).toHaveBeenCalled();
+});
+
+No sobreprobar:  No es necesario comprobar que React invoca internamente setState. Se verifica la salida o callback observable.
+
+14. Pruebas de integracion con API
+Para pruebas automatizadas de componentes que realizan HTTP, una estrategia robusta es simular la API en el nivel de red. Testing Library recomienda Mock Service Worker (MSW) para este tipo de escenarios. En esta guia se considera una evolucion opcional; el minimo obligatorio es cubrir componentes e interacciones criticas y realizar una prueba Fullstack manual contra Spring Boot real.
+Escenario Fullstack
+Accion
+Resultado esperado
+GET Clientes
+Entrar a /clientes
+Tabla carga datos reales
+POST Cliente
+Guardar formulario valido
+201/200 + fila visible
+PUT Cliente
+Editar telefono
+BD y tabla actualizadas
+POST Vehiculo
+Seleccionar Cliente + guardar
+FK cliente_id correcta
+PUT Vehiculo
+Cambiar propietario
+FK cambia al nuevo Cliente
+DELETE restringido
+Eliminar Cliente con Vehiculos
+409/mensaje; no desaparece localmente
+
+15. Scripts de calidad antes de compilar
+Secuencia minima
+npm run test:run
+npm run build
+npm run preview
+
+`test:run` ejecuta los tests una vez y debe terminar en verde.
+`build` ejecuta TypeScript y genera el bundle de produccion.
+`preview` sirve localmente el contenido de `dist` para una verificacion final.
+Un proyecto que solo funciona con `npm run dev` aun no esta listo para entregar.
+
+16. Variables de entorno por modo
+Separar desarrollo y produccion
+# .env.development
+VITE_API_URL=http://localhost:8080/api
+
+# .env.production
+VITE_API_URL=https://api.parkflow360.com/api
+
+src/config/env.ts
+export const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  throw new Error('VITE_API_URL no esta configurada');
+}
+
+Seguridad:  Las variables VITE_ terminan dentro del codigo cliente. No guardar passwords, tokens privados, claves de base de datos ni secretos.
+
+17. Build de produccion con Vite
+El build de produccion se genera con Vite. El resultado se escribe por defecto en `dist/` y contiene archivos estaticos optimizados que pueden ser servidos por un hosting web.
+Generar el build
+npm run build
+
+# Resultado esperado
+# dist/
+#   index.html
+#   assets/
+#     index-xxxxx.js
+#     index-xxxxx.css
+
+No se despliega `src/`, ni `node_modules/`, ni WebStorm. Se despliega el resultado compilado y se configura la URL real del backend mediante el modo de produccion.
+18. Preview del build
+Probar el bundle localmente
+npm run preview
+
+La vista previa sirve `dist` en un servidor local. Deben probarse rutas, formularios, recargas y llamadas al backend exactamente como si el bundle estuviera desplegado.
+19. BrowserRouter y fallback SPA
+Con BrowserRouter, una URL como `/vehiculos` debe devolver `index.html` cuando se solicita directamente al servidor estatico. Si el servidor intenta buscar un archivo fisico `/vehiculos`, una recarga puede producir 404.
+Ejemplo conceptual de Nginx
+server {
+  listen 80;
+  server_name parkflow360.example.com;
+  root /var/www/parkflow360/dist;
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+Prueba obligatoria:  Abrir /clientes, presionar F5 y comprobar que la SPA vuelve a cargar. Repetir con /vehiculos.
+
+20. CORS en produccion
+En desarrollo el origen suele ser `http://localhost:5173`. En produccion debe autorizarse el origen real del frontend. CORS es una politica del navegador; Postman puede seguir funcionando aunque el navegador bloquee la respuesta.
+Ejemplo Spring Boot para produccion
+@Configuration
+public class CorsConfig implements WebMvcConfigurer {
+  @Override
+  public void addCorsMappings(CorsRegistry registry) {
+    registry.addMapping("/api/**")
+      .allowedOrigins("https://parkflow360.example.com")
+      .allowedMethods("GET", "POST", "PUT", "DELETE");
+  }
+}
+
+21. Checklist de preparacion para despliegue
+`.env.production` apunta al backend correcto y no contiene secretos.
+CORS del backend autoriza el origen real del frontend.
+HTTPS en frontend y backend para evitar contenido mixto.
+El servidor estatico tiene fallback SPA a `index.html`.
+`npm run test:run` finaliza sin fallos.
+`npm run build` finaliza sin errores TypeScript.
+`npm run preview` permite navegar y recargar todas las rutas.
+GET/POST/PUT/DELETE de Cliente y Vehiculo funcionan contra el backend real.
+Los errores de negocio se muestran sin corromper el estado local.
+La consola del navegador no presenta errores inesperados.
+22. Matriz final de pruebas Fullstack
+ID
+Prueba
+Esperado
+Capa dominante
+F01
+Abrir Dashboard
+Metricas visibles y coherentes
+UI + GET
+F02
+Crear Cliente valido
+Registro persistido y tabla actualizada
+POST
+F03
+Crear Cliente invalido
+Validacion impide o backend rechaza
+400/validacion
+F04
+Editar Cliente
+Datos nuevos persisten
+PUT
+F05
+Crear Vehiculo
+Vehiculo queda asociado al Cliente
+POST + FK
+F06
+Cambiar propietario
+cliente_id cambia correctamente
+PUT + FK
+F07
+Filtrar Vehiculos
+Tabla solo muestra coincidencias
+Estado derivado
+F08
+Paginar y buscar
+Busqueda actua antes de paginacion
+UI
+F09
+Eliminar Vehiculo
+Desaparece solo tras respuesta exitosa
+DELETE
+F10
+Eliminar Cliente con dependencias
+Backend rechaza y UI conserva fila
+409
+F11
+Recargar /clientes
+SPA mantiene ruta
+Routing/Fallback
+F12
+Backend apagado
+UI muestra error comprensible
+Red/HTTP
+
+23. Practica final integradora
+El estudiante debe entregar ParkFlow360 funcionando como una aplicacion unica, no como ejemplos aislados.
+Agregar Dashboard como pagina inicial con al menos cuatro metricas derivadas.
+Agregar AppErrorBoundary en la raiz y demostrar su fallback con un componente de prueba temporal.
+Instalar y configurar Vitest + jsdom + Testing Library.
+Crear al menos cuatro tests: un componente, una interaccion, una validacion/busqueda y un caso de paginacion.
+Ejecutar `npm run test:run` y capturar evidencia del resultado.
+Crear `.env.development`, `.env.production` y `.env.example` sin secretos.
+Generar `dist/` con `npm run build` sin errores.
+Probar el build con `npm run preview` y recargar rutas directas.
+Ejecutar la matriz F01-F12 y registrar resultado de cada caso.
+Prepararse para defender un flujo elegido al azar desde el navegador hasta PostgreSQL.
+24. 50 preguntas de defensa final
+1. ¿Cual es el recorrido completo de un POST Cliente desde el boton Guardar hasta PostgreSQL?
+2. ¿Que responsabilidad tiene React Router en ParkFlow360?
+3. ¿Por que MainLayout usa Outlet?
+4. ¿Cual es la diferencia entre un componente UI generico y un componente de feature?
+5. ¿Por que Cliente y Vehiculo tienen contratos TypeScript propios?
+6. ¿Por que el estado de un formulario puede usar string aunque el dominio use number?
+7. ¿Que ocurre desde onChange de clienteId hasta la FK en PostgreSQL?
+8. ¿Que responsabilidad tiene clienteService?
+9. ¿Por que una Page no deberia llamar fetch en muchos lugares?
+10. ¿Que hace apiClient ante response.ok === false?
+11. ¿Por que fetch puede resolver una Promise aunque el servidor responda 404?
+12. ¿Que diferencia existe entre error HTTP, error de negocio y error de render?
+13. ¿Que captura una Error Boundary y que no captura?
+14. ¿Para que sirve getDerivedStateFromError?
+15. ¿Para que sirve componentDidCatch?
+16. ¿Por que Dashboard no debe guardar clientesActivos en useState?
+17. ¿Cuando deberian las metricas del Dashboard venir del backend?
+18. ¿Que problema resuelve useEffect en esta aplicacion?
+19. ¿Por que un cleanup puede abortar una request?
+20. ¿Que problema evita AbortController?
+21. ¿Que es una race condition de requests?
+22. ¿Por que StrictMode puede ejecutar Effects mas de una vez en desarrollo?
+23. ¿Que ventaja aporta un custom Hook como useClientes?
+24. ¿Por que SearchInput no debe conocer clienteService?
+25. ¿Por que se filtra antes de paginar?
+26. ¿Que pasa si el filtro reduce las paginas y page queda fuera de rango?
+27. ¿Por que no debe usarse Math.random() como key?
+28. ¿Para que sirve un ConfirmDialog antes de DELETE?
+29. ¿Como se representa Cliente 1:N Vehiculo en React?
+30. ¿Como se representa la misma relacion en PostgreSQL?
+31. ¿Que debe hacer la UI si DELETE Cliente devuelve 409?
+32. ¿Que significa que PUT sea idempotente?
+33. ¿Por que DELETE puede responder 204?
+34. ¿Que objetivo tiene Vitest en este proyecto?
+35. ¿Por que usamos jsdom?
+36. ¿Que aporta React Testing Library?
+37. ¿Por que user-event es preferible para simular interacciones de usuario?
+38. ¿Que diferencia existe entre probar comportamiento y probar implementacion interna?
+39. ¿Que valida el test de Pagination?
+40. ¿Que comando ejecuta los tests una sola vez?
+41. ¿Que hace `npm run build`?
+42. ¿Que carpeta genera Vite por defecto para produccion?
+43. ¿Para que sirve `npm run preview`?
+44. ¿Que archivo de entorno carga Vite al hacer un build de produccion?
+45. ¿Por que VITE_API_URL no puede contener un secreto?
+46. ¿Por que /vehiculos puede dar 404 al recargar en un hosting mal configurado?
+47. ¿Que significa fallback SPA?
+48. ¿Por que Postman puede funcionar mientras React falla por CORS?
+49. ¿Que verificaria primero si el frontend de produccion no llega al backend?
+50. ¿Como demostraria en una defensa que ParkFlow360 es realmente Fullstack y no solo una interfaz?
+25. Checklist de graduacion ParkFlow360
+☐ Puedo explicar la estructura completa del frontend sin leer el codigo.
+☐ Puedo explicar GET, POST, PUT y DELETE de Cliente y Vehiculo.
+☐ Puedo defender la relacion Cliente 1:N Vehiculo en React, JSON, Java/JPA y PostgreSQL.
+☐ Puedo diagnosticar errores con Network, consola, backend y base de datos.
+☐ Puedo explicar estado fuente, estado derivado, hooks y asincronia.
+☐ Puedo justificar busqueda, filtros, paginacion y modales.
+☐ Puedo escribir y explicar un test de componente y uno de interaccion.
+☐ Puedo generar y probar un build de produccion.
+☐ Puedo explicar CORS, variables de entorno y fallback SPA.
+☐ Puedo seguir un dato desde el formulario hasta PostgreSQL y de regreso a la pantalla.
+Cierre de la serie:  Quien puede demostrar este checklist y responder la defensa sin memorizar fragmentos aislados ya puede presentar ParkFlow360 como un proyecto Fullstack coherente y defendible.
+
+

@@ -1,0 +1,486 @@
+﻿
+PARKFLOW360
+GUÍA 02
+Navegación, Layout Principal y Menú Profesional
+React Router + React + TypeScript + Vite + WebStorm
+ESTUDIANTE
+Implementación guiada. Preguntas y prácticas sin solucionario.
+Proyecto académico: ParkFlow360
+Backend ya validado con Postman y Swagger
+Frontend: construcción incremental y defendible
+
+Contenido de la guía
+Bloque
+Qué se construye
+A
+Concepto de SPA y routing en React.
+B
+Instalación de React Router en WebStorm.
+C
+AppRouter, MainLayout, Header y Sidebar.
+D
+Rutas Inicio, Clientes, Vehículos y 404.
+E
+Estilos del menú y comportamiento responsive.
+F
+Pruebas, práctica y defensa oral.
+1. Propósito
+Construir la primera capa navegable del frontend de ParkFlow360. Al finalizar, el proyecto tendrá un layout administrativo consistente, un menú lateral con estado activo y páginas independientes para Inicio, Clientes y Vehículos. Aún no se consumirá el backend: primero se dominará el flujo de navegación y la arquitectura visual.
+Resultado esperado:  al ejecutar el proyecto, el usuario podrá navegar entre /, /clientes y /vehiculos sin recargar toda la aplicación. Una ruta inexistente mostrará una página 404 dentro del mismo layout.
+
+2. Competencias que debe demostrar el estudiante
+Explicar qué problema resuelve un router en una SPA.
+Instalar y verificar una dependencia npm desde WebStorm.
+Separar responsabilidades entre main.tsx, App.tsx, AppRouter.tsx y MainLayout.tsx.
+Crear rutas declarativas y comprender el uso de Route, Routes y Outlet.
+Construir un menú con NavLink y explicar por qué sabe cuál opción está activa.
+Comprobar navegación, historial del navegador y manejo de rutas inexistentes.
+Defender oralmente el flujo completo desde el clic en el menú hasta el componente renderizado.
+3. Punto de partida
+Esta guía continúa directamente la Guía 01. Se asume que el proyecto Vite + React + TypeScript ya abre y ejecuta correctamente y que la estructura base de carpetas ya fue creada.
+Antes de avanzar:  no conectes Axios, fetch, formularios ni el backend. En esta etapa queremos aislar el problema de navegación y layout.
+
+4. Concepto previo: SPA y routing del lado del cliente
+ParkFlow360 será una Single Page Application (SPA). El navegador carga la aplicación React y, a partir de allí, el router decide qué componente debe mostrarse según la URL. Navegar de /clientes a /vehiculos cambia la vista sin solicitar al servidor un documento HTML completamente nuevo para cada pantalla.
+Flujo conceptual
+Usuario hace clic en “Clientes”
+        ↓
+NavLink cambia la URL a /clientes
+        ↓
+BrowserRouter observa la nueva ubicación
+        ↓
+Routes busca la Route que coincide
+        ↓
+MainLayout permanece visible
+        ↓
+Outlet renderiza ClientesPage
+5. Instalar React Router desde WebStorm
+Abre la terminal integrada de WebStorm (Alt+F12) en la raíz del proyecto y ejecuta:
+npm install react-router
+1.  Espera a que npm termine sin errores.
+2.  Abre package.json.
+3.  Comprueba que react-router aparece entre las dependencias.
+4.  Ejecuta nuevamente npm run dev y verifica que el proyecto sigue arrancando.
+Importante:  en documentación y tutoriales antiguos puede aparecer react-router-dom. En esta guía se seguirá la API declarativa actual documentada oficialmente con el paquete react-router.
+
+6. Estructura que agregaremos
+src/
+├── app/
+│   └── App.tsx
+├── components/
+│   └── common/
+│       ├── Header.tsx
+│       └── Sidebar.tsx
+├── features/
+│   ├── clientes/
+│   │   └── pages/
+│   │       └── ClientesPage.tsx
+│   └── vehiculos/
+│       └── pages/
+│           └── VehiculosPage.tsx
+├── layouts/
+│   └── MainLayout.tsx
+├── pages/
+│   ├── DashboardPage.tsx
+│   └── NotFoundPage.tsx
+├── routes/
+│   └── AppRouter.tsx
+├── styles/
+│   └── global.css
+└── main.tsx
+No crees archivos fuera de su responsabilidad. La navegación vive en routes; la estructura visual permanente en layouts; los componentes comunes en components/common; y las páginas específicas de Cliente y Vehículo permanecen dentro de sus features.
+7. Configurar BrowserRouter en main.tsx
+Reemplaza el contenido de src/main.tsx por el siguiente código:
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
+import App from './app/App';
+import './styles/global.css';
+ 
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+);
+Observa:  BrowserRouter envuelve a App. Por eso cualquier componente descendiente podrá usar las herramientas de React Router.
+
+8. Convertir App.tsx en punto de entrada de la navegación
+Abre src/app/App.tsx y deja que su única responsabilidad sea delegar el árbol de pantallas al router:
+import AppRouter from '../routes/AppRouter';
+ 
+export default function App() {
+  return <AppRouter />;
+}
+9. Crear AppRouter.tsx
+Crea src/routes/AppRouter.tsx. Aquí se declara qué componente corresponde a cada dirección.
+import { Route, Routes } from 'react-router';
+import MainLayout from '../layouts/MainLayout';
+import DashboardPage from '../pages/DashboardPage';
+import NotFoundPage from '../pages/NotFoundPage';
+import ClientesPage from '../features/clientes/pages/ClientesPage';
+import VehiculosPage from '../features/vehiculos/pages/VehiculosPage';
+ 
+export default function AppRouter() {
+  return (
+    <Routes>
+      <Route element={<MainLayout />}>
+        <Route index element={<DashboardPage />} />
+        <Route path="clientes" element={<ClientesPage />} />
+        <Route path="vehiculos" element={<VehiculosPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
+  );
+}
+La ruta index representa /.
+clientes representa /clientes porque está anidada bajo la ruta de layout.
+vehiculos representa /vehiculos.
+* captura cualquier dirección que no coincida con las anteriores.
+10. Crear el layout principal con Outlet
+Crea src/layouts/MainLayout.tsx:
+import { Outlet } from 'react-router';
+import Header from '../components/common/Header';
+import Sidebar from '../components/common/Sidebar';
+ 
+export default function MainLayout() {
+  return (
+    <div className="app-shell">
+      <Sidebar />
+ 
+      <div className="app-shell__main">
+        <Header />
+        <main className="app-content">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+Sidebar y Header son permanentes. Outlet es el punto variable: allí aparecerá DashboardPage, ClientesPage, VehiculosPage o NotFoundPage según la URL.
+11. Crear el menú lateral con NavLink
+Crea src/components/common/Sidebar.tsx:
+import { NavLink } from 'react-router';
+ 
+const menuItems = [
+  { to: '/', label: 'Inicio', end: true },
+  { to: '/clientes', label: 'Clientes' },
+  { to: '/vehiculos', label: 'Vehículos' },
+];
+ 
+export default function Sidebar() {
+  return (
+    <aside className="sidebar">
+      <div className="sidebar__brand">
+        <span className="sidebar__brand-mark">P</span>
+        <div>
+          <strong>ParkFlow360</strong>
+          <small>Administración</small>
+        </div>
+      </div>
+ 
+      <nav className="sidebar__nav" aria-label="Navegación principal">
+        {menuItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `sidebar__link${isActive ? ' sidebar__link--active' : ''}`
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+Punto de defensa:  debes poder explicar la diferencia entre un enlace HTML normal y NavLink, y qué representa isActive.
+
+12. Crear el encabezado común
+Crea src/components/common/Header.tsx:
+export default function Header() {
+  return (
+    <header className="topbar">
+      <div>
+        <p className="topbar__eyebrow">Frontend administrativo</p>
+        <h1>ParkFlow360</h1>
+      </div>
+      <span className="topbar__status">React + TypeScript</span>
+    </header>
+  );
+}
+13. Crear las páginas iniciales
+src/pages/DashboardPage.tsx
+export default function DashboardPage() {
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <p className="page-heading__eyebrow">Panel principal</p>
+          <h2>Bienvenido a ParkFlow360</h2>
+        </div>
+      </div>
+ 
+      <div className="placeholder-card">
+        <h3>Frontend listo para crecer</h3>
+        <p>
+          Desde este punto incorporaremos listados, formularios y conexión
+          HTTP con el backend de Cliente y Vehículo.
+        </p>
+      </div>
+    </section>
+  );
+}
+src/features/clientes/pages/ClientesPage.tsx
+export default function ClientesPage() {
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <p className="page-heading__eyebrow">Módulo</p>
+          <h2>Clientes</h2>
+        </div>
+      </div>
+ 
+      <div className="placeholder-card">
+        <h3>Gestión de clientes</h3>
+        <p>Aquí construiremos el listado y los formularios CRUD.</p>
+      </div>
+    </section>
+  );
+}
+src/features/vehiculos/pages/VehiculosPage.tsx
+export default function VehiculosPage() {
+  return (
+    <section>
+      <div className="page-heading">
+        <div>
+          <p className="page-heading__eyebrow">Módulo</p>
+          <h2>Vehículos</h2>
+        </div>
+      </div>
+ 
+      <div className="placeholder-card">
+        <h3>Gestión de vehículos</h3>
+        <p>Aquí construiremos el listado y los formularios CRUD.</p>
+      </div>
+    </section>
+  );
+}
+src/pages/NotFoundPage.tsx
+import { Link } from 'react-router';
+ 
+export default function NotFoundPage() {
+  return (
+    <section className="not-found">
+      <p className="page-heading__eyebrow">Error 404</p>
+      <h2>La página solicitada no existe</h2>
+      <p>Revisa la dirección o vuelve al panel principal.</p>
+      <Link className="button-link" to="/">Volver al inicio</Link>
+    </section>
+  );
+}
+14. Aplicar un diseño administrativo profesional
+Crea o reemplaza src/styles/global.css con el siguiente contenido. El objetivo no es “decorar”: el CSS ayuda a visualizar claramente qué parte pertenece al layout permanente y qué parte cambia con la ruta.
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  color: #1d2733;
+  background: #f3f6fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+ 
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+a { color: inherit; }
+button, input, select, textarea { font: inherit; }
+ 
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+ 
+.sidebar {
+  min-height: 100vh;
+  padding: 24px 18px;
+  background: #16324f;
+  color: #ffffff;
+}
+ 
+.sidebar__brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 8px 24px;
+}
+ 
+.sidebar__brand-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #0f9dab;
+  font-weight: 800;
+}
+ 
+.sidebar__brand strong,
+.sidebar__brand small { display: block; }
+.sidebar__brand small { margin-top: 2px; opacity: .72; }
+.sidebar__nav { display: grid; gap: 8px; }
+ 
+.sidebar__link {
+  padding: 11px 12px;
+  border-radius: 9px;
+  text-decoration: none;
+  color: #dce7f1;
+  font-weight: 650;
+}
+ 
+.sidebar__link:hover { background: rgba(255,255,255,.08); }
+.sidebar__link--active { background: #ffffff; color: #16324f; }
+ 
+.app-shell__main { min-width: 0; }
+.topbar {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #dde7f0;
+}
+ 
+.topbar h1, .page-heading h2 { margin: 0; }
+.topbar__eyebrow, .page-heading__eyebrow {
+  margin: 0 0 4px;
+  color: #5c6773;
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+ 
+.topbar__status {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #e9f7f8;
+  color: #0b6f79;
+  font-size: .85rem;
+  font-weight: 750;
+}
+ 
+.app-content { padding: 28px; }
+.page-heading { margin-bottom: 20px; }
+.placeholder-card, .not-found {
+  max-width: 780px;
+  padding: 24px;
+  border: 1px solid #dde7f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(22,50,79,.06);
+}
+.placeholder-card h3 { margin-top: 0; }
+ 
+.button-link {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: #1f6feb;
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 700;
+}
+ 
+@media (max-width: 820px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { min-height: auto; }
+  .sidebar__nav { display: flex; overflow-x: auto; }
+  .sidebar__link { white-space: nowrap; }
+  .topbar { align-items: flex-start; }
+  .app-content { padding: 20px; }
+}
+15. Ejecutar y comprobar
+En WebStorm puedes ejecutar el script dev desde package.json, desde la ventana npm o desde la terminal con npm run dev. Abre la URL mostrada por Vite.
+Prueba
+Acción
+Resultado esperado
+1
+/
+Debe mostrarse DashboardPage y “Inicio” debe estar activo.
+2
+/clientes
+Debe mostrarse ClientesPage y “Clientes” debe quedar activo.
+3
+/vehiculos
+Debe mostrarse VehiculosPage y “Vehículos” debe quedar activo.
+4
+/ruta-inexistente
+Debe mostrarse NotFoundPage.
+5
+Atrás / Adelante
+El historial del navegador debe cambiar entre rutas sin perder el layout.
+6
+Cambiar ancho
+En pantalla angosta el menú debe acomodarse horizontalmente.
+16. Actividad práctica obligatoria
+Sin copiar una solución externa, realiza las siguientes modificaciones y prepárate para justificarlas oralmente:
+1.  Crea una nueva página AcercaPage.tsx dentro de src/pages.
+2.  Agrega la ruta /acerca dentro del layout principal.
+3.  Agrega “Acerca” al menú usando NavLink.
+4.  Haz que el texto activo sea visualmente identificable sin cambiar el comportamiento de las otras opciones.
+5.  Cambia intencionalmente path="clientes" por path="clientes2", observa el efecto y luego restaura el código.
+6.  Elimina temporalmente Outlet de MainLayout, observa qué ocurre y luego restáuralo.
+7.  Explica por escrito, en máximo 8 líneas, el flujo desde un clic en Clientes hasta ClientesPage.
+17. Preguntas de defensa oral
+1. ¿Qué es una SPA y qué ventaja tiene para este frontend?
+2. ¿Qué problema resuelve React Router?
+3. ¿Por qué BrowserRouter se coloca cerca de la raíz de la aplicación?
+4. ¿Cuál es la responsabilidad de main.tsx?
+5. ¿Cuál es la responsabilidad de App.tsx en esta arquitectura?
+6. ¿Por qué AppRouter.tsx está separado de App.tsx?
+7. ¿Qué hace Routes?
+8. ¿Qué hace Route?
+9. ¿Qué significa una Route index?
+10. ¿Qué significa path="*"?
+11. ¿Por qué clientes y vehiculos no empiezan con / dentro del Route anidado?
+12. ¿Qué es un layout y por qué MainLayout no pertenece a features/clientes?
+13. ¿Qué hace Outlet exactamente?
+14. ¿Qué ocurriría si eliminamos Outlet del layout?
+15. ¿Cuál es la diferencia conceptual entre Link y NavLink?
+16. ¿Qué representa isActive en NavLink?
+17. ¿Por qué no usamos un <a href="/clientes"> normal para el menú principal?
+18. Explica el flujo completo al hacer clic en Clientes.
+19. ¿Qué archivo modificarías si quisieras agregar la ruta /reportes?
+20. ¿Qué archivos modificarías si además quisieras mostrar Reportes en el menú?
+21. ¿Por qué todavía no debemos llamar al backend en esta guía?
+22. ¿Cómo sabes que el navegador no recargó toda la aplicación al cambiar de ruta?
+23. ¿Qué diferencia hay entre la URL /clientes y el archivo ClientesPage.tsx?
+24. ¿Por qué una ruta inexistente debe tener tratamiento explícito?
+25. ¿Qué responsabilidad cumple el CSS responsive de esta guía?
+18. Checklist de entrega
+☐  react-router instalado y visible en package.json.
+☐  BrowserRouter configurado en main.tsx.
+☐  App.tsx delega a AppRouter.
+☐  AppRouter contiene rutas /, /clientes, /vehiculos y 404.
+☐  MainLayout contiene Sidebar, Header y Outlet.
+☐  NavLink marca correctamente la opción activa.
+☐  DashboardPage, ClientesPage y VehiculosPage se muestran correctamente.
+☐  La ruta inexistente funciona.
+☐  El diseño responde al reducir el ancho del navegador.
+☐  La actividad /acerca está implementada.
+☐  El estudiante puede explicar el flujo sin leer el código.
+Referencias oficiales consultadas
+React Router - Installation (Declarative Mode): https://reactrouter.com/start/declarative/installation
+React Router - Routing: https://reactrouter.com/start/declarative/routing
+React Router - Navigating: https://reactrouter.com/start/declarative/navigating
+Vite - Getting Started: https://vite.dev/guide/
+JetBrains WebStorm - Vite: https://www.jetbrains.com/help/webstorm/vite.html
+

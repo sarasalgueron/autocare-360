@@ -1,0 +1,593 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 09
+COMPONENTES REUTILIZABLES, BUSQUEDA, FILTROS, PAGINACION Y MODALES
+React + TypeScript + Vite | UI compartida | UX profesional | Accesibilidad
+ESTUDIANTE
+Secuencia: Guia 01 -> 02 -> 03 -> 04 -> 05 -> 06 -> 07 -> 08 -> GUIA 09 -> 10
+Meta de esta guia:  Transformar los CRUD funcionales de ParkFlow360 en una interfaz reutilizable, buscable, filtrable, paginada y preparada para una experiencia de usuario profesional.
+
+
+Indice de contenidos
+1. Objetivos de aprendizaje
+2. Punto de partida
+3. Arquitectura UI compartida
+4. Button y variantes
+5. SearchInput y SelectFilter
+6. Estado fuente y estado derivado
+7. Busqueda y filtros combinados
+8. useMemo: cuando usarlo
+9. Paginacion cliente
+10. Componente Pagination
+11. EmptyState y StatusBadge
+12. Modal reutilizable con <dialog>
+13. ConfirmDialog para DELETE
+14. Integracion en ClientesPage
+15. Integracion en VehiculosPage
+16. CSS y design tokens
+17. Accesibilidad y UX
+18. Cuando paginar en backend
+19. Diagnostico
+20. Mapa de responsabilidades
+21. Practica evaluada
+22. 40 preguntas de defensa
+23. Checklist
+24. Preparacion Guia 10
+
+1. Objetivos de aprendizaje
+Extraer controles repetidos a componentes UI reutilizables y tipados con props.
+Mantener una sola fuente de verdad para busqueda, filtros, pagina actual y tamanio de pagina.
+Construir datos derivados con filter(), map() y slice() sin duplicar colecciones en estado.
+Implementar busqueda por texto y filtros combinados en Clientes y Vehiculos.
+Implementar paginacion cliente con limites correctos y reinicio de pagina ante cambios de filtro.
+Crear Modal y ConfirmDialog reutilizables sin depender de window.confirm().
+Mejorar accesibilidad: labels, foco, teclado, dialogo modal y controles con nombres comprensibles.
+Definir design tokens CSS para mantener coherencia visual en toda la aplicacion.
+Distinguir paginacion cliente de paginacion servidor y justificar cuando corresponde cada una.
+Defender el flujo completo UI -> estado -> datos derivados -> render -> evento -> accion CRUD.
+2. Punto de partida: CRUD funcional, interfaz repetitiva
+Despues de las Guias 06, 07 y 08, Clientes y Vehiculos ya realizan CRUD real y usan hooks para encapsular asincronia. El siguiente problema no es de conectividad: es de experiencia de usuario, reutilizacion y escalabilidad visual.
+Problema actual
+Consecuencia
+Objetivo de Guia 09
+Inputs de busqueda repetidos
+Mas codigo y estilos duplicados
+SearchInput reutilizable
+Filtros escritos dentro de cada Page
+Logica dificil de mantener
+SelectFilter + datos derivados
+Listas largas
+Scroll excesivo
+Paginacion
+window.confirm()
+UX limitada y poco personalizable
+ConfirmDialog
+Botones con estilos distintos
+Inconsistencia visual
+Button con variantes
+Mensajes vacios improvisados
+UX pobre
+EmptyState
+
+Regla arquitectonica:  Un componente UI generico no debe conocer clienteService ni vehiculoService. Recibe datos y callbacks por props. La Page conserva la coordinacion del caso de uso.
+
+3. Arquitectura UI compartida
+Estructura propuesta
+src/
+  components/
+    ui/
+      Button.tsx
+      SearchInput.tsx
+      SelectFilter.tsx
+      Pagination.tsx
+      Modal.tsx
+      ConfirmDialog.tsx
+      EmptyState.tsx
+      StatusBadge.tsx
+  features/
+    clientes/
+      components/ClienteTable.tsx
+      hooks/useClientes.ts
+    vehiculos/
+      components/VehiculoTable.tsx
+      hooks/useVehiculos.ts
+  pages/
+    ClientesPage.tsx
+    VehiculosPage.tsx
+  styles/
+    tokens.css
+    ui.css
+
+La carpeta components/ui contiene piezas sin conocimiento del dominio. features contiene piezas especificas de Cliente o Vehiculo. pages coordina filtros, modales, formularios y acciones del caso de uso.
+4. Button reutilizable y variantes
+components/ui/Button.tsx
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  loading?: boolean;
+};
+
+export function Button({
+  variant = 'primary',
+  loading = false,
+  disabled,
+  children,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      className={`btn btn--${variant}`}
+      disabled={disabled || loading}
+      {...props}
+    >
+      {loading ? 'Procesando...' : children}
+    </button>
+  );
+}
+
+Extender ButtonHTMLAttributes permite conservar onClick, type, title, aria-label y otras props nativas.
+variant controla presentacion; no debe codificar reglas de negocio.
+loading evita dobles envios y comunica que hay una operacion en curso.
+5. SearchInput y SelectFilter
+SearchInput.tsx
+type SearchInputProps = {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+};
+
+export function SearchInput({ value, onChange, placeholder = 'Buscar...' }: SearchInputProps) {
+  return (
+    <label className="field">
+      <span className="field__label">Busqueda</span>
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+SelectFilter.tsx
+type Option = { value: string; label: string };
+
+type SelectFilterProps = {
+  label: string;
+  value: string;
+  options: Option[];
+  onChange: (value: string) => void;
+};
+
+export function SelectFilter({ label, value, options, onChange }: SelectFilterProps) {
+  return (
+    <label className="field">
+      <span className="field__label">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+6. Estado fuente y estado derivado
+No copie filteredClientes a useState si puede calcularse desde clientes + search + activoFilter. La lista filtrada es un dato derivado. Guardarla tambien como estado crea dos fuentes de verdad que pueden desincronizarse.
+Valor
+Guardar en useState
+Motivo
+clientes
+Si
+Proviene del backend y cambia con CRUD
+search
+Si
+Lo controla el usuario
+activoFilter
+Si
+Lo controla el usuario
+filteredClientes
+No
+Se calcula desde otros valores
+page
+Si
+Seleccion actual del usuario
+totalPages
+No
+Se deriva de cantidad y pageSize
+
+7. Busqueda y filtros combinados
+Filtro compuesto de Clientes
+const [search, setSearch] = useState('');
+const [activoFilter, setActivoFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+const filteredClientes = clientes.filter((cliente) => {
+  const term = search.trim().toLowerCase();
+  const matchesText = !term ||
+    cliente.nombre.toLowerCase().includes(term) ||
+    cliente.apellido.toLowerCase().includes(term) ||
+    cliente.documento.toLowerCase().includes(term) ||
+    cliente.email.toLowerCase().includes(term);
+
+  const matchesStatus =
+    activoFilter === 'all' ||
+    (activoFilter === 'active' && cliente.activo) ||
+    (activoFilter === 'inactive' && !cliente.activo);
+
+  return matchesText && matchesStatus;
+});
+
+El operador AND aparece en el return final: el registro debe cumplir busqueda textual y estado. Dentro de matchesText usamos OR porque cualquiera de los campos puede coincidir.
+8. useMemo: optimizacion, no requisito funcional
+Memoizacion opcional
+const filteredClientes = useMemo(() => {
+  return clientes.filter((cliente) => {
+    // calculo puro
+    return matchesSearch(cliente, search) && matchesStatus(cliente, activoFilter);
+  });
+}, [clientes, search, activoFilter]);
+
+Importante:  useMemo debe usarse como optimizacion de un calculo puro. El codigo debe ser correcto aun sin useMemo. Para colecciones pequenas, filter() directo suele ser suficiente y mas simple.
+
+9. Paginacion cliente: modelo matematico
+La paginacion cliente se aplica despues de filtrar. Si se pagina antes, una pagina puede ocultar coincidencias que existen en otras paginas.
+Concepto
+Formula / regla
+totalItems
+filteredData.length
+totalPages
+Math.max(1, Math.ceil(totalItems / pageSize))
+start
+(page - 1) * pageSize
+end
+start + pageSize
+visibleData
+filteredData.slice(start, end)
+Cambio de search/filter
+Reiniciar page a 1
+
+Estado y calculo de pagina
+const [page, setPage] = useState(1);
+const [pageSize, setPageSize] = useState(10);
+
+const totalPages = Math.max(1, Math.ceil(filteredClientes.length / pageSize));
+const start = (page - 1) * pageSize;
+const visibleClientes = filteredClientes.slice(start, start + pageSize);
+
+useEffect(() => {
+  setPage(1);
+}, [search, activoFilter, pageSize]);
+
+10. Componente Pagination
+Pagination.tsx
+type PaginationProps = {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+};
+
+export function Pagination({ page, totalPages, onPageChange }: PaginationProps) {
+  return (
+    <nav className="pagination" aria-label="Paginacion">
+      <Button variant="ghost" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+        Anterior
+      </Button>
+      <span>Pagina {page} de {totalPages}</span>
+      <Button variant="ghost" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+        Siguiente
+      </Button>
+    </nav>
+  );
+}
+
+No permita pagina 0 ni pagina mayor a totalPages. Al eliminar el ultimo elemento de una pagina, ajuste la pagina si quedo fuera de rango.
+11. EmptyState y StatusBadge
+Componentes de estado visual
+export function EmptyState({ title, description }: { title: string; description?: string }) {
+  return (
+    <section className="empty-state" role="status">
+      <strong>{title}</strong>
+      {description && <p>{description}</p>}
+    </section>
+  );
+}
+
+export function StatusBadge({ active }: { active: boolean }) {
+  return <span className={`badge ${active ? 'badge--active' : 'badge--inactive'}`}>
+    {active ? 'Activo' : 'Inactivo'}
+  </span>;
+}
+
+12. Modal reutilizable con <dialog>
+Modal.tsx
+import { useEffect, useRef, type ReactNode } from 'react';
+
+type ModalProps = {
+  open: boolean;
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+};
+
+export function Modal({ open, title, children, onClose }: ModalProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  return (
+    <dialog ref={ref} className="modal" onCancel={onClose} onClose={onClose}>
+      <header className="modal__header">
+        <h2>{title}</h2>
+        <button aria-label="Cerrar" onClick={onClose}>×</button>
+      </header>
+      {children}
+    </dialog>
+  );
+}
+
+Ventaja del <dialog> nativo:  showModal() coloca el dialogo en la capa superior, bloquea la interaccion con el contenido externo y ofrece comportamiento de teclado que seria necesario recrear manualmente en un modal basado solo en div.
+
+13. ConfirmDialog para DELETE
+ConfirmDialog.tsx
+type ConfirmDialogProps = {
+  open: boolean;
+  title: string;
+  message: string;
+  confirming?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+export function ConfirmDialog(props: ConfirmDialogProps) {
+  return (
+    <Modal open={props.open} title={props.title} onClose={props.onCancel}>
+      <p>{props.message}</p>
+      <div className="modal__actions">
+        <Button variant="secondary" onClick={props.onCancel}>Cancelar</Button>
+        <Button variant="danger" loading={props.confirming} onClick={props.onConfirm}>
+          Eliminar
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+La confirmacion no conoce Cliente ni Vehiculo. La Page guarda el id pendiente de eliminar y decide que service ejecutar al confirmar.
+14. Integracion en ClientesPage
+Estado de coordinacion de ClientesPage
+const [search, setSearch] = useState('');
+const [status, setStatus] = useState('all');
+const [page, setPage] = useState(1);
+const [pendingDelete, setPendingDelete] = useState<Cliente | null>(null);
+
+const filtered = clientes.filter((cliente) =>
+  matchesCliente(cliente, search, status)
+);
+const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+async function confirmDelete() {
+  if (!pendingDelete) return;
+  await remove(pendingDelete.id);
+  setPendingDelete(null);
+}
+
+SearchInput actualiza search.
+SelectFilter actualiza status.
+La Page calcula filtered y visible.
+ClienteTable recibe solo visible.
+Al pulsar Eliminar se asigna pendingDelete; no se elimina todavia.
+ConfirmDialog llama confirmDelete.
+El hook/service elimina; al cambiar clientes se recalcula automaticamente la lista visible.
+15. Integracion en VehiculosPage
+Filtros combinados de Vehiculos
+const [search, setSearch] = useState('');
+const [clienteFilter, setClienteFilter] = useState('all');
+const [status, setStatus] = useState('all');
+
+const filteredVehiculos = vehiculos.filter((vehiculo) => {
+  const owner = clientesById.get(vehiculo.clienteId);
+  const text = `${vehiculo.placa} ${vehiculo.marca} ${vehiculo.modelo} ${owner?.nombre ?? ''} ${owner?.apellido ?? ''}`
+    .toLowerCase();
+
+  const matchesText = text.includes(search.trim().toLowerCase());
+  const matchesOwner = clienteFilter === 'all' || vehiculo.clienteId === Number(clienteFilter);
+  const matchesStatus = status === 'all' || (status === 'active' ? vehiculo.activo : !vehiculo.activo);
+
+  return matchesText && matchesOwner && matchesStatus;
+});
+
+Aqui la busqueda puede incluir tambien el nombre del propietario porque la Page ya dispone del mapa clientesById construido en la Guia 07.
+16. CSS profesional y design tokens
+styles/tokens.css
+:root {
+  --color-primary: #17365d;
+  --color-accent: #2f75b5;
+  --color-danger: #b42318;
+  --color-success: #067647;
+  --color-border: #d0d5dd;
+  --color-surface: #ffffff;
+  --color-muted: #667085;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --shadow-md: 0 12px 30px rgba(16, 24, 40, .14);
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+}
+
+Los tokens evitan copiar valores arbitrarios por toda la aplicacion. Si cambia la identidad visual, se modifica la fuente del token y no decenas de componentes.
+17. Accesibilidad y UX
+Regla
+Aplicacion en ParkFlow360
+Label visible
+Busqueda y filtros deben tener etiqueta, no depender solo de placeholder.
+Teclado
+El modal debe poder cerrarse con Escape y mantener comportamiento predecible.
+Foco
+Al abrir un dialogo, el usuario debe poder operar dentro de el sin interactuar accidentalmente con el fondo.
+Nombres accesibles
+Boton de icono usa aria-label="Cerrar".
+Disabled real
+Anterior/Siguiente se deshabilitan en limites.
+Feedback
+Mostrar loading, empty state, error y confirmacion de acciones.
+No color solamente
+StatusBadge incluye texto Activo/Inactivo, no solo color.
+
+18. Cuando la paginacion debe moverse al backend
+La paginacion cliente es apropiada si ya se cargaron todos los registros y el volumen es moderado. Con miles o millones de registros, descargar todo para despues ocultar la mayoria desperdicia red, memoria y tiempo.
+Cliente
+Servidor
+GET /clientes y luego slice()
+GET /clientes?page=0&size=20&search=ana&activo=true
+Todos los registros llegan al navegador
+Solo llega la pagina solicitada
+Simple para conjuntos pequenos
+Escalable para grandes volumenes
+totalPages calculado localmente
+Backend devuelve totalElements/totalPages o metadatos equivalentes
+
+Preparacion para evolucion:  La interfaz Pagination puede mantenerse aunque la fuente de datos cambie de paginacion cliente a servidor. Cambia quien calcula y obtiene la pagina, no necesariamente la UI.
+
+19. Diagnostico sistematico
+Sintoma
+Causa probable
+Que inspeccionar
+Buscar no cambia la tabla
+Tabla recibe data original
+Props enviadas a ClienteTable/VehiculoTable
+Pagina queda vacia tras filtrar
+page no se reinicio
+Effect o handler que setea page(1)
+Siguiente supera limite
+Falta disabled/validacion
+page y totalPages
+Modal no abre
+ref nulo o showModal no ejecutado
+open, ref.current, dialog.open
+DELETE ocurre antes de confirmar
+onDelete llama service directamente
+pendingDelete y ConfirmDialog
+Filtro propietario falla
+Comparacion string vs number
+Number(clienteFilter)
+Estado se desincroniza
+Se guardo filteredData en useState
+Eliminar estado derivado duplicado
+
+20. Mapa de responsabilidades
+Pieza
+Debe hacer
+No debe hacer
+SearchInput
+Emitir texto
+Filtrar Clientes
+SelectFilter
+Emitir opcion
+Conocer services
+Pagination
+Emitir nueva pagina
+Hacer GET HTTP
+Modal
+Gestionar presentacion modal
+Eliminar entidades
+ConfirmDialog
+Pedir confirmacion
+Elegir endpoint
+ClienteTable
+Renderizar filas/emitir acciones
+Coordinar CRUD
+ClientesPage
+Coordinar estado, filtros y modales
+Implementar fetch bajo nivel
+useClientes
+Gestionar operaciones de Cliente
+Renderizar UI
+clienteService
+Hablar con API
+Gestionar modal
+
+21. Practica evaluada
+Refactorice ClientesPage y VehiculosPage para cumplir todos los requisitos siguientes:
+Crear Button, SearchInput, SelectFilter, Pagination, Modal, ConfirmDialog, EmptyState y StatusBadge dentro de components/ui.
+Implementar busqueda de Cliente por nombre, apellido, documento y email.
+Implementar filtro de Cliente por estado: todos, activos e inactivos.
+Implementar busqueda de Vehiculo por placa, marca, modelo y nombre del propietario.
+Implementar filtros de Vehiculo por propietario y estado.
+Paginar ambas tablas con tamanio de pagina configurable entre 5, 10 y 20.
+Reiniciar a pagina 1 al cambiar busqueda, filtro o tamanio.
+Sustituir window.confirm() por ConfirmDialog.
+Mostrar EmptyState cuando no existan resultados.
+Conservar CRUD completo y estados loading/error/saving/deleting.
+Demostrar teclado y cierre con Escape en el modal.
+Mantener componentes UI desacoplados de Cliente/Vehiculo.
+22. 40 preguntas para defensa oral
+1. ¿Que diferencia existe entre un componente UI generico y un componente de dominio?
+2. ¿Por que Button no debe importar clienteService?
+3. ¿Que significa que SearchInput sea un componente controlado?
+4. ¿Por que filteredClientes no deberia guardarse normalmente en useState?
+5. ¿Que problema crea mantener clientes y filteredClientes como dos estados independientes?
+6. ¿En que orden debe ejecutarse busqueda, filtrado y paginacion?
+7. ¿Por que es incorrecto paginar primero y filtrar despues?
+8. ¿Como se construye una busqueda case-insensitive?
+9. ¿Por que trim() es util en una busqueda?
+10. ¿Que diferencia hay entre OR dentro de la busqueda y AND entre filtros?
+11. ¿Que hace useMemo?
+12. ¿Por que useMemo no debe ser requisito para que la logica funcione?
+13. ¿Cuales son las dependencias correctas de un useMemo que filtra clientes?
+14. ¿Como se calcula totalPages?
+15. ¿Como se calcula el indice inicial de una pagina?
+16. ¿Que hace slice(start, end)?
+17. ¿Por que page debe volver a 1 cuando cambia search?
+18. ¿Que debe ocurrir si se elimina el unico registro de la ultima pagina?
+19. ¿Que responsabilidad tiene Pagination?
+20. ¿Por que Pagination no debe hacer fetch directamente?
+21. ¿Por que usamos un id estable como key en filas y opciones?
+22. ¿Que ventaja ofrece EmptyState frente a una tabla simplemente vacia?
+23. ¿Por que StatusBadge debe incluir texto y no depender solamente del color?
+24. ¿Que problema de UX resuelve un ConfirmDialog?
+25. ¿Por que pendingDelete debe guardar la entidad o su id antes de ejecutar DELETE?
+26. ¿Que hace showModal() sobre un elemento dialog?
+27. ¿Que diferencia conceptual hay entre open y showModal()?
+28. ¿Que deberia ocurrir al presionar Escape en un modal?
+29. ¿Por que un boton de solo icono necesita aria-label?
+30. ¿Que son design tokens?
+31. ¿Que ventaja tienen las variables CSS frente a copiar colores y espacios?
+32. ¿Como se filtra Vehiculo por clienteId si el select devuelve string?
+33. ¿Como se puede buscar un Vehiculo por nombre del propietario sin duplicar ese nombre dentro de Vehiculo?
+34. ¿Que ventaja tiene clientesById Map para resolver propietarios?
+35. ¿Cuando es adecuada la paginacion cliente?
+36. ¿Cuando debe migrarse la paginacion al backend?
+37. ¿Como cambiaria GET /clientes para paginacion servidor?
+38. ¿Por que una UI Pagination puede reutilizarse con paginacion cliente o servidor?
+39. ¿Que significa single source of truth aplicado a filtros y resultados?
+40. Explique el flujo completo desde escribir "ana" hasta ver solo las filas coincidentes en pantalla.
+23. Checklist de entrega
+☐ Existe components/ui con al menos los 8 componentes solicitados.
+☐ Clientes y Vehiculos tienen busqueda y filtros funcionales.
+☐ La paginacion nunca sale de sus limites.
+☐ Cambiar filtros reinicia a pagina 1.
+☐ No existe filteredClientes/filteredVehiculos duplicado innecesariamente en estado.
+☐ ConfirmDialog reemplaza window.confirm().
+☐ Modal funciona con teclado y Escape.
+☐ Se mantienen loading/error/saving/deleting.
+☐ No se rompio CRUD Cliente ni CRUD Vehiculo.
+☐ Los componentes UI no importan services de dominio.
+☐ Los estilos usan tokens reutilizables.
+☐ El estudiante puede responder las 40 preguntas sin leer el codigo.
+24. Preparacion para la Guia 10
+Al finalizar esta guia, ParkFlow360 ya posee arquitectura frontend, navegacion, contratos TypeScript, formularios, conexion HTTP, CRUD Cliente, CRUD Vehiculo, relacion 1:N, hooks asincronos y una capa UI profesional. La Guia 10 cerrara el proyecto con dashboard, integracion final, testing, build de produccion y defensa Fullstack end-to-end.
+Fuentes tecnicas de referencia
+React: Rendering Lists (react.dev/learn/rendering-lists) | useMemo (react.dev/reference/react/useMemo) | Sharing State Between Components (react.dev/learn/sharing-state-between-components) | MDN: dialog (developer.mozilla.org/.../Elements/dialog) | showModal() (developer.mozilla.org/.../HTMLDialogElement/showModal)
+

@@ -1,0 +1,607 @@
+﻿
+PARKFLOW360
+FRONTEND FULLSTACK
+GUIA 04
+FORMULARIOS PROFESIONALES EN REACT + TYPESCRIPT
+useState - Inputs controlados - Eventos tipados - Validacion - Cliente - Vehiculo
+Version
+ESTUDIANTE
+Proyecto
+ParkFlow360 - React + TypeScript + Vite + WebStorm
+Proposito
+Construir y defender formularios controlados sin conectar todavia el backend.
+Secuencia: Guia 01 -> Guia 02 -> Guia 03 -> GUIA 04 -> Guia 05
+
+Indice de contenidos
+1. Objetivos de aprendizaje
+2. Punto de partida y prerrequisitos
+3. Estructura del proyecto
+4. Conceptos fundamentales
+5. Tipos de formulario
+6. Validaciones
+7. ClienteForm
+8. VehiculoForm
+9. Estilos
+10. Integracion en paginas
+11. Flujo para defensa
+12. Pruebas
+13. Practica evaluada
+14. 25 preguntas de defensa
+15. Checklist final y siguiente guia
+1. Objetivos de aprendizaje
+Comprender por que un formulario React se modela como estado y no como lectura directa del DOM.
+Diferenciar inputs controlados y no controlados, identificando cuando conviene usar cada enfoque.
+Usar useState con objetos para manejar formularios de varias entradas sin mutar el estado.
+Tipar eventos de cambio y envio con TypeScript.
+Validar datos antes de preparar el objeto que en una guia posterior sera enviado al backend.
+Construir ClienteForm y VehiculoForm respetando los modelos definidos en la Guia 03.
+Representar la relacion Cliente 1:N Vehiculo mediante un select controlado de clienteId.
+Explicar oralmente el flujo: usuario -> input -> evento -> estado -> validacion -> submit -> payload preparado.
+2. Punto de partida y prerrequisitos
+Antes de comenzar, el proyecto debe contener lo desarrollado en las tres guias anteriores:
+Proyecto Vite con React + TypeScript ejecutando correctamente en WebStorm.
+React Router con layout principal y rutas /clientes y /vehiculos.
+Modelos TypeScript Cliente y Vehiculo.
+Datos simulados clientesMock y vehiculosMock.
+Tablas ClienteTable y VehiculoTable funcionando.
+Alcance de esta guia: Todavia NO consumiremos Spring Boot. El objetivo es dominar el formulario y producir datos validos. La conexion HTTP llegara en la Guia 05.
+
+3. Estructura que agregaremos al proyecto
+Arbol de carpetas sugerido
+src/
+|-- features/
+|   |-- clientes/
+|   |   |-- components/
+|   |   |   |-- ClienteForm.tsx
+|   |   |-- models/
+|   |   |   |-- Cliente.ts
+|   |   |-- types/
+|   |   |   |-- ClienteFormData.ts
+|   |   |-- utils/
+|   |       |-- clienteValidation.ts
+|   |
+|   |-- vehiculos/
+|       |-- components/
+|       |   |-- VehiculoForm.tsx
+|       |-- models/
+|       |   |-- Vehiculo.ts
+|       |-- types/
+|       |   |-- VehiculoFormData.ts
+|       |-- utils/
+|           |-- vehiculoValidation.ts
+|-- pages/ o pages dentro de cada feature (segun la estructura de Guia 02/03)
+
+Idea arquitectonica: El modelo de dominio describe datos ya validos. El tipo del formulario describe lo que el usuario esta escribiendo. Separarlos evita forzar conversiones prematuras y prepara el frontend para DTOs reales.
+
+4. Conceptos fundamentales antes de programar
+Concepto
+Que significa
+Ejemplo en ParkFlow360
+Estado
+Memoria del componente que React usa para volver a renderizar la interfaz.
+formData, errors, mensajeExito, mostrarFormulario
+Input controlado
+Su value o checked proviene del estado y cambia mediante onChange.
+value={formData.nombre}
+onChange
+Evento que se ejecuta cuando el usuario modifica una entrada.
+handleChange(e)
+onSubmit
+Evento del formulario al guardar.
+handleSubmit(e)
+preventDefault
+Evita que el navegador recargue la pagina al enviar el form.
+e.preventDefault()
+Inmutabilidad
+No se modifica el objeto de estado directamente; se crea una copia.
+setFormData(prev => ({...prev, nombre: valor}))
+Validacion
+Reglas previas a aceptar/preparar los datos.
+nombre obligatorio, email valido, anio razonable
+Payload
+Objeto preparado para enviarse a la API.
+clientePayload o vehiculoPayload
+
+5. Crear los tipos de datos de formulario
+En la Guia 03 el modelo Vehiculo usa anio:number y clienteId:number. Durante la escritura, sin embargo, los valores de un input/select llegan como texto. Por eso utilizaremos tipos especificos para el formulario.
+src/features/clientes/types/ClienteFormData.ts
+export interface ClienteFormData {
+  nombre: string;
+  apellido: string;
+  documento: string;
+  telefono: string;
+  email: string;
+  activo: boolean;
+}
+
+src/features/vehiculos/types/VehiculoFormData.ts
+export interface VehiculoFormData {
+  placa: string;
+  marca: string;
+  modelo: string;
+  anio: string;
+  color: string;
+  clienteId: string;
+  activo: boolean;
+}
+
+Pregunta de defensa: ¿Por que anio y clienteId son string en VehiculoFormData si en Vehiculo son number? Respuesta esperada: porque el navegador entrega valores de input/select como texto; validamos y convertimos antes de construir el modelo/payload.
+
+6. Implementar validaciones sin librerias externas
+Primero aprenderemos la logica manual. Mas adelante podremos comparar con librerias como React Hook Form o Zod, pero un estudiante debe entender que problema resuelven antes de usarlas.
+src/features/clientes/utils/clienteValidation.ts
+import type { ClienteFormData } from '../types/ClienteFormData';
+
+export type ClienteFormErrors = Partial<Record<keyof ClienteFormData, string>>;
+
+export function validarCliente(data: ClienteFormData): ClienteFormErrors {
+  const errors: ClienteFormErrors = {};
+
+  if (!data.nombre.trim()) errors.nombre = 'El nombre es obligatorio.';
+  if (!data.apellido.trim()) errors.apellido = 'El apellido es obligatorio.';
+  if (!data.documento.trim()) errors.documento = 'El documento es obligatorio.';
+
+  if (!data.email.trim()) {
+    errors.email = 'El email es obligatorio.';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    errors.email = 'El email no tiene un formato valido.';
+  }
+
+  if (data.telefono && data.telefono.replace(/\D/g, '').length < 7) {
+    errors.telefono = 'El telefono debe tener al menos 7 digitos.';
+  }
+
+  return errors;
+}
+
+src/features/vehiculos/utils/vehiculoValidation.ts
+import type { VehiculoFormData } from '../types/VehiculoFormData';
+
+export type VehiculoFormErrors = Partial<Record<keyof VehiculoFormData, string>>;
+
+export function validarVehiculo(data: VehiculoFormData): VehiculoFormErrors {
+  const errors: VehiculoFormErrors = {};
+  const anioActual = new Date().getFullYear();
+  const anio = Number(data.anio);
+
+  if (!data.placa.trim()) errors.placa = 'La placa es obligatoria.';
+  if (!data.marca.trim()) errors.marca = 'La marca es obligatoria.';
+  if (!data.modelo.trim()) errors.modelo = 'El modelo es obligatorio.';
+  if (!data.color.trim()) errors.color = 'El color es obligatorio.';
+  if (!data.clienteId) errors.clienteId = 'Debe seleccionar un cliente.';
+
+  if (!data.anio) {
+    errors.anio = 'El anio es obligatorio.';
+  } else if (!Number.isInteger(anio) || anio < 1950 || anio > anioActual + 1) {
+    errors.anio = 'Ingrese un anio valido.';
+  }
+
+  return errors;
+}
+
+7. Construir ClienteForm con inputs controlados
+El formulario mantendra un unico objeto formData. Cada input leera desde ese objeto y lo actualizara sin mutarlo.
+src/features/clientes/components/ClienteForm.tsx
+import { useState, type ChangeEvent, type FormEvent } from 'react';
+import type { ClienteFormData } from '../types/ClienteFormData';
+import { validarCliente, type ClienteFormErrors } from '../utils/clienteValidation';
+
+const initialClienteForm: ClienteFormData = {
+  nombre: '',
+  apellido: '',
+  documento: '',
+  telefono: '',
+  email: '',
+  activo: true,
+};
+
+export default function ClienteForm() {
+  const [formData, setFormData] = useState<ClienteFormData>(initialClienteForm);
+  const [errors, setErrors] = useState<ClienteFormErrors>({});
+  const [mensaje, setMensaje] = useState('');
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type, checked } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
+  };
+
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setMensaje('');
+
+    const validationErrors = validarCliente(formData);
+    setErrors(validationErrors);
+
+    if (Object.keys(validationErrors).length > 0) return;
+
+    const clientePayload = {
+      ...formData,
+      nombre: formData.nombre.trim(),
+      apellido: formData.apellido.trim(),
+      documento: formData.documento.trim(),
+      email: formData.email.trim().toLowerCase(),
+    };
+
+    console.log('Cliente listo para API:', clientePayload);
+    setMensaje('Datos validos. Cliente listo para enviarse al backend.');
+  };
+
+  return (
+    <form className="entity-form" onSubmit={handleSubmit} noValidate>
+      <div className="form-grid">
+        <label>
+          Nombre
+          <input name="nombre" value={formData.nombre} onChange={handleChange} />
+          {errors.nombre && <small className="field-error">{errors.nombre}</small>}
+        </label>
+
+        <label>
+          Apellido
+          <input name="apellido" value={formData.apellido} onChange={handleChange} />
+          {errors.apellido && <small className="field-error">{errors.apellido}</small>}
+        </label>
+
+        <label>
+          Documento
+          <input name="documento" value={formData.documento} onChange={handleChange} />
+          {errors.documento && <small className="field-error">{errors.documento}</small>}
+        </label>
+
+        <label>
+          Telefono
+          <input name="telefono" value={formData.telefono} onChange={handleChange} />
+          {errors.telefono && <small className="field-error">{errors.telefono}</small>}
+        </label>
+
+        <label className="form-span-2">
+          Email
+          <input type="email" name="email" value={formData.email} onChange={handleChange} />
+          {errors.email && <small className="field-error">{errors.email}</small>}
+        </label>
+
+        <label className="checkbox-field form-span-2">
+          <input type="checkbox" name="activo" checked={formData.activo} onChange={handleChange} />
+          Cliente activo
+        </label>
+      </div>
+
+      {mensaje && <div className="form-success">{mensaje}</div>}
+
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={() => {
+          setFormData(initialClienteForm);
+          setErrors({});
+          setMensaje('');
+        }}>
+          Limpiar
+        </button>
+        <button type="submit" className="btn-primary">Guardar cliente</button>
+      </div>
+    </form>
+  );
+}
+
+8. Construir VehiculoForm y representar Cliente 1:N
+El formulario de Vehiculo introduce un select controlado. El usuario ve el nombre del cliente, pero el estado guarda clienteId. Esto representa la relacion desde el frontend.
+src/features/vehiculos/components/VehiculoForm.tsx
+import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { clientesMock } from '../../clientes/data/clientes.mock';
+import type { VehiculoFormData } from '../types/VehiculoFormData';
+import { validarVehiculo, type VehiculoFormErrors } from '../utils/vehiculoValidation';
+
+const initialVehiculoForm: VehiculoFormData = {
+  placa: '',
+  marca: '',
+  modelo: '',
+  anio: '',
+  color: '',
+  clienteId: '',
+  activo: true,
+};
+
+export default function VehiculoForm() {
+  const [formData, setFormData] = useState<VehiculoFormData>(initialVehiculoForm);
+  const [errors, setErrors] = useState<VehiculoFormErrors>({});
+  const [mensaje, setMensaje] = useState('');
+
+  const handleChange = (
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+
+    if (e.target instanceof HTMLInputElement && e.target.type === 'checkbox') {
+      setFormData((prev) => ({ ...prev, [name]: e.target.checked }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setMensaje('');
+
+    const validationErrors = validarVehiculo(formData);
+    setErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
+
+    const vehiculoPayload = {
+      placa: formData.placa.trim().toUpperCase(),
+      marca: formData.marca.trim(),
+      modelo: formData.modelo.trim(),
+      anio: Number(formData.anio),
+      color: formData.color.trim(),
+      clienteId: Number(formData.clienteId),
+      activo: formData.activo,
+    };
+
+    console.log('Vehiculo listo para API:', vehiculoPayload);
+    setMensaje('Datos validos. Vehiculo listo para enviarse al backend.');
+  };
+
+  return (
+    <form className="entity-form" onSubmit={handleSubmit} noValidate>
+      <div className="form-grid">
+        <label>
+          Placa
+          <input name="placa" value={formData.placa} onChange={handleChange} />
+          {errors.placa && <small className="field-error">{errors.placa}</small>}
+        </label>
+
+        <label>
+          Marca
+          <input name="marca" value={formData.marca} onChange={handleChange} />
+          {errors.marca && <small className="field-error">{errors.marca}</small>}
+        </label>
+
+        <label>
+          Modelo
+          <input name="modelo" value={formData.modelo} onChange={handleChange} />
+          {errors.modelo && <small className="field-error">{errors.modelo}</small>}
+        </label>
+
+        <label>
+          Anio
+          <input type="number" name="anio" value={formData.anio} onChange={handleChange} />
+          {errors.anio && <small className="field-error">{errors.anio}</small>}
+        </label>
+
+        <label>
+          Color
+          <input name="color" value={formData.color} onChange={handleChange} />
+          {errors.color && <small className="field-error">{errors.color}</small>}
+        </label>
+
+        <label>
+          Cliente propietario
+          <select name="clienteId" value={formData.clienteId} onChange={handleChange}>
+            <option value="">Seleccione un cliente</option>
+            {clientesMock
+              .filter((cliente) => cliente.activo)
+              .map((cliente) => (
+                <option key={cliente.id} value={cliente.id}>
+                  {cliente.nombre} {cliente.apellido}
+                </option>
+              ))}
+          </select>
+          {errors.clienteId && <small className="field-error">{errors.clienteId}</small>}
+        </label>
+
+        <label className="checkbox-field form-span-2">
+          <input type="checkbox" name="activo" checked={formData.activo} onChange={handleChange} />
+          Vehiculo activo
+        </label>
+      </div>
+
+      {mensaje && <div className="form-success">{mensaje}</div>}
+
+      <div className="form-actions">
+        <button type="submit" className="btn-primary">Guardar vehiculo</button>
+      </div>
+    </form>
+  );
+}
+
+9. Estilos profesionales para los formularios
+Agregar a src/styles/forms.css (o al archivo global definido en Guia 01)
+.entity-form {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.form-grid input:focus,
+.form-grid select:focus {
+  outline: 3px solid rgba(59, 130, 246, 0.15);
+  border-color: #2563eb;
+}
+
+.form-span-2 { grid-column: 1 / -1; }
+.checkbox-field { flex-direction: row !important; align-items: center; }
+.checkbox-field input { width: auto; }
+.field-error { color: #b91c1c; font-weight: 500; }
+.form-success {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #166534;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .form-span-2 { grid-column: auto; }
+  .form-actions { flex-direction: column-reverse; }
+}
+
+10. Integrar los formularios en las paginas
+Para practicar estado adicional, mostraremos y ocultaremos el formulario con un boton. El objetivo no es aun insertar datos en la tabla; solamente controlar la interfaz.
+Ejemplo de ClientesPage.tsx
+import { useState } from 'react';
+import ClienteForm from '../components/ClienteForm';
+import ClienteTable from '../components/ClienteTable';
+import { clientesMock } from '../data/clientes.mock';
+
+export default function ClientesPage() {
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+
+  return (
+    <section className="feature-page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">GESTION DE CLIENTES</p>
+          <h1>Clientes</h1>
+        </div>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => setMostrarFormulario((prev) => !prev)}
+        >
+          {mostrarFormulario ? 'Cerrar formulario' : '+ Nuevo cliente'}
+        </button>
+      </div>
+
+      {mostrarFormulario && <ClienteForm />}
+      <ClienteTable clientes={clientesMock} />
+    </section>
+  );
+}
+
+No confundir: Guardar en esta guia NO inserta todavia una fila ni llama a Spring Boot. Solo demuestra que el formulario produce un payload correcto. Persistencia y CRUD llegan despues.
+
+11. Flujo que el estudiante debe poder defender
+Paso
+Que ocurre
+Concepto
+1
+El usuario escribe "Ana"
+El input genera onChange.
+2
+handleChange recibe el evento
+Lee name y value/checked.
+3
+setFormData crea un nuevo objeto
+React programa una nueva renderizacion.
+4
+El input recibe value desde formData
+La interfaz refleja el estado actual.
+5
+El usuario presiona Guardar
+El formulario dispara onSubmit.
+6
+preventDefault evita recarga
+La SPA conserva su estado.
+7
+validarCliente/validarVehiculo analiza datos
+Se llena errors si hay problemas.
+8
+Si no hay errores
+Se normalizan y convierten los valores.
+9
+Se construye el payload
+Queda listo para HTTP en la Guia 05.
+
+12. Pruebas manuales obligatorias
+1. Ejecutar npm run dev y comprobar que no existen errores TypeScript en WebStorm ni en la consola del navegador.
+2. Abrir Clientes, mostrar el formulario e intentar Guardar con todos los campos vacios.
+3. Escribir un email invalido y verificar que aparece el mensaje correspondiente.
+4. Corregir los datos y verificar que el mensaje de exito aparece sin recargar la pagina.
+5. Abrir DevTools -> Console y comprobar que se imprime clientePayload.
+6. Abrir Vehiculos, intentar guardar sin seleccionar cliente y comprobar la validacion.
+7. Seleccionar un cliente activo y comprobar que clienteId se convierte a number dentro de vehiculoPayload.
+8. Ingresar un anio fuera del rango permitido y comprobar el error.
+9. Marcar y desmarcar Activo y explicar por que se usa checked en lugar de value.
+10. Reducir el ancho del navegador y comprobar que el formulario pasa a una sola columna.
+13. Practica evaluada
+Implemente las siguientes mejoras sin conectar todavia el backend:
+Agregar campo Direccion al formulario de Cliente y hacerlo obligatorio.
+Agregar una regla para que documento acepte al menos 5 caracteres.
+Convertir placa a mayusculas en el payload, sin obligar al usuario a escribirla en mayusculas.
+Mostrar solo clientes activos en el select de Vehiculo.
+Agregar boton Limpiar al formulario de Vehiculo.
+Deshabilitar visualmente el boton Guardar mientras exista un envio simulado de 500 ms (reto avanzado).
+Crear un contador que muestre cuantos errores tiene el formulario cuando se intenta guardar.
+Explicar por escrito por que la validacion del frontend NO reemplaza la validacion del backend.
+14. Preguntas para defensa oral
+1. ¿Que significa que un input sea controlado en React?
+2. ¿Cual es la fuente de verdad de un input controlado?
+3. ¿Para que sirve useState en un formulario?
+4. ¿Por que no debemos escribir formData.nombre = "Juan" directamente?
+5. ¿Que hace el operador spread ...prev en setFormData?
+6. ¿Por que cada input tiene un atributo name?
+7. ¿Que significa [name] dentro de un objeto JavaScript?
+8. ¿Que diferencia existe entre value y checked?
+9. ¿Que tipo TypeScript usamos para el evento de un input?
+10. ¿Que tipo usamos para el evento onSubmit del formulario?
+11. ¿Por que llamamos e.preventDefault()?
+12. ¿Que ocurriria si un input tiene value pero no tiene onChange?
+13. ¿Por que VehiculoFormData.anio es string mientras el usuario escribe?
+14. ¿En que momento convertimos anio a number?
+15. ¿Que riesgo existe si Number(formData.anio) se ejecuta sin validar?
+16. ¿Como representa el select la relacion Cliente 1:N Vehiculo?
+17. ¿Por que el option muestra nombre pero usa id como value?
+18. ¿Que hace Object.keys(validationErrors).length > 0?
+19. ¿Por que los errores tambien son estado?
+20. ¿Que ventaja tiene agrupar los campos en un solo objeto formData?
+21. ¿Que desventaja puede tener un manejador handleChange demasiado generico?
+22. ¿Por que la validacion del frontend no reemplaza la validacion de Spring Boot?
+23. ¿Que diferencia existe entre modelo de dominio y tipo de formulario?
+24. ¿Que es un payload y que contiene en esta guia?
+25. Explique el recorrido completo desde que escribe una letra hasta que se construye clientePayload.
+15. Checklist final del estudiante
+[ ] ClienteForm funciona como formulario controlado.
+[ ] VehiculoForm funciona como formulario controlado.
+[ ] Los errores aparecen sin recargar la pagina.
+[ ] El checkbox usa checked y no un value de texto.
+[ ] El select almacena clienteId y muestra nombre del cliente.
+[ ] anio y clienteId se convierten a number solo despues de validar.
+[ ] Los formularios son responsivos.
+[ ] Puedo explicar el flujo completo sin mirar el codigo.
+[ ] No he conectado aun la API: solo preparo payloads.
+17. Cierre y preparacion para la Guia 05
+Al finalizar esta guia, ClienteForm y VehiculoForm deben producir objetos validos y normalizados. La siguiente guia reemplazara el console.log por una comunicacion real con Spring Boot.
+Siguiente guia: Guia 05 - Conexion React <-> Spring Boot: URL base, variables .env, CORS, fetch/Axios, capa de servicios, async/await, estados loading/error y primera peticion GET/POST.
+
+Referencias tecnicas oficiales
+React Documentation - <input>: https://react.dev/reference/react-dom/components/input
+React Documentation - <form>: https://react.dev/reference/react-dom/components/form
+React - Updating Objects in State: https://react.dev/learn/updating-objects-in-state
+React - Sharing State Between Components: https://react.dev/learn/sharing-state-between-components
+Nota: La guia usa onSubmit y estado controlado de forma deliberada porque es el camino pedagogico mas directo antes de incorporar comunicacion HTTP y librerias de formularios.
+

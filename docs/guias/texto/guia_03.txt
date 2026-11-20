@@ -1,0 +1,475 @@
+﻿
+PARKFLOW360
+GUÍA 03
+Modelos TypeScript, Datos Simulados
+y Tablas Profesionales
+Cliente + Vehículo · tipado · props · map() · key · relación 1:N
+ESTUDIANTE
+Implementación guiada. Prácticas y preguntas de defensa sin solucionario.
+Proyecto académico: ParkFlow360
+Backend: Spring Boot + PostgreSQL (ya probado con Postman/Swagger)
+Frontend: React + TypeScript + Vite + WebStorm
+
+Contenido de la guía
+1. Propósito y resultado esperado
+2. Competencias que debe demostrar el estudiante
+3. Del modelo Java al modelo TypeScript
+4. Estructura de archivos de la Guía 03
+5. Crear los modelos Cliente y Vehiculo
+6. Crear datos simulados tipados
+7. Construir ClienteTable y VehiculoTable
+8. Integrar las tablas en ClientesPage y VehiculosPage
+9. Estilos profesionales y responsive
+10. Flujo mental que debe defender el estudiante
+11. Práctica obligatoria
+12. Preguntas de defensa oral
+13. Checklist de entrega
+
+1. Propósito y resultado esperado
+En la Guía 02 se construyó la navegación de ParkFlow360 y quedaron disponibles las rutas /clientes y /vehiculos. En esta guía esas páginas dejarán de ser simples pantallas vacías: comenzarán a representar información realista del dominio usando TypeScript, datos simulados y tablas reutilizables por feature.
+Regla de esta guía:  todavía NO se llama al backend. El objetivo es dominar el modelo de datos del frontend, el tipado, las props y el renderizado de colecciones antes de introducir asincronía, HTTP y CORS.
+
+Al finalizar, el estudiante debe poder ejecutar ParkFlow360 y observar un listado profesional de clientes y otro de vehículos. Además, debe explicar de dónde sale cada dato y cómo viaja desde un arreglo TypeScript hasta una fila HTML renderizada por React.
+2. Competencias que debe demostrar el estudiante
+Explicar la diferencia entre una entidad JPA del backend y un modelo o contrato TypeScript del frontend.
+Crear interfaces TypeScript para Cliente y Vehiculo sin recurrir a any.
+Tipar arreglos de datos simulados con Cliente[] y Vehiculo[].
+Pasar información de una página a un componente mediante props.
+Renderizar colecciones con map() y justificar el uso de una key estable.
+Representar en el frontend la relación Cliente 1:N Vehiculo mediante clienteId.
+Resolver visualmente estados activos/inactivos y listas vacías.
+Explicar el flujo completo datos → props → map() → JSX → DOM.
+3. Del modelo Java al modelo TypeScript
+El backend y el frontend describen el mismo dominio, pero cumplen responsabilidades distintas. Una entidad Java puede incluir anotaciones JPA, relaciones, reglas de persistencia y detalles internos que React no necesita conocer. El frontend necesita un contrato de datos claro para trabajar de forma segura con TypeScript.
+Concepto
+Responsabilidad
+Entidad Java / JPA
+Representa persistencia y dominio del backend. Puede tener @Entity, @Id, @OneToMany, etc.
+Interface TypeScript
+Describe la forma que debe tener un objeto en el frontend. Sirve para chequeo estático y autocompletado.
+DTO del backend
+Contrato que la API decide exponer. En un sistema real, el modelo TS debería alinearse principalmente con este contrato.
+Dato simulado (mock)
+Objeto local que respeta el mismo modelo TS y permite construir la UI antes de consumir la API.
+
+Importante:  una interface TypeScript no crea una tabla ni existe en PostgreSQL. Es una ayuda del compilador/editor para detectar inconsistencias antes de ejecutar la aplicación. Los archivos con JSX deben usar extensión .tsx.
+
+4. Estructura de archivos de la Guía 03
+A partir de la estructura creada en las guías anteriores, agrega los siguientes archivos dentro de cada feature:
+src/
+├── features/
+│   ├── clientes/
+│   │   ├── components/
+│   │   │   └── ClienteTable.tsx
+│   │   ├── data/
+│   │   │   └── clientes.mock.ts
+│   │   ├── models/
+│   │   │   └── Cliente.ts
+│   │   └── pages/
+│   │       └── ClientesPage.tsx
+│   └── vehiculos/
+│       ├── components/
+│       │   └── VehiculoTable.tsx
+│       ├── data/
+│       │   └── vehiculos.mock.ts
+│       ├── models/
+│       │   └── Vehiculo.ts
+│       └── pages/
+│           └── VehiculosPage.tsx
+└── styles/
+    └── global.css
+
+Carpeta
+Responsabilidad
+models
+Tipos e interfaces del dominio usados por el frontend.
+data
+Datos simulados temporales para construir y probar la interfaz.
+components
+Componentes visuales específicos de la feature.
+pages
+Pantallas enlazadas por el router; coordinan datos y componentes.
+
+5. Crear los modelos Cliente y Vehiculo
+5.1 Modelo Cliente
+Crea src/features/clientes/models/Cliente.ts:
+export interface Cliente {
+  id: number;
+  nombre: string;
+  apellido: string;
+  documento: string;
+  telefono: string;
+  email: string;
+  activo: boolean;
+}
+
+Los nombres de atributos son didácticos. Si tu backend ParkFlow360 usa otros nombres exactos, conserva el concepto y alinea los modelos con el contrato real que expone tu API.
+5.2 Modelo Vehiculo
+Crea src/features/vehiculos/models/Vehiculo.ts:
+export interface Vehiculo {
+  id: number;
+  placa: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  color: string;
+  clienteId: number;
+  activo: boolean;
+}
+
+Relación 1:N:  un Cliente puede poseer varios Vehículos. En los mocks usaremos clienteId para señalar a qué cliente pertenece cada vehículo. Más adelante, al consumir la API, podremos adaptar este modelo al JSON real que devuelva Spring Boot.
+
+6. Crear datos simulados tipados
+Los mocks permiten construir la interfaz sin esperar la integración HTTP. Deben respetar exactamente las interfaces definidas.
+6.1 clientes.mock.ts
+import type { Cliente } from '../models/Cliente';
+
+export const clientesMock: Cliente[] = [
+  {
+    id: 1,
+    nombre: 'Ana',
+    apellido: 'Rojas',
+    documento: '7845123',
+    telefono: '70010001',
+    email: 'ana.rojas@correo.com',
+    activo: true,
+  },
+  {
+    id: 2,
+    nombre: 'Carlos',
+    apellido: 'Mendez',
+    documento: '6589421',
+    telefono: '70010002',
+    email: 'carlos.mendez@correo.com',
+    activo: true,
+  },
+  {
+    id: 3,
+    nombre: 'Lucia',
+    apellido: 'Vargas',
+    documento: '9123476',
+    telefono: '70010003',
+    email: 'lucia.vargas@correo.com',
+    activo: false,
+  },
+  {
+    id: 4,
+    nombre: 'Diego',
+    apellido: 'Suarez',
+    documento: '7345892',
+    telefono: '70010004',
+    email: 'diego.suarez@correo.com',
+    activo: true,
+  },
+];
+
+6.2 vehiculos.mock.ts
+import type { Vehiculo } from '../models/Vehiculo';
+
+export const vehiculosMock: Vehiculo[] = [
+  { id: 1, placa: '4567-ABC', marca: 'Toyota', modelo: 'Corolla', anio: 2022, color: 'Blanco', clienteId: 1, activo: true },
+  { id: 2, placa: '2389-XYZ', marca: 'Suzuki', modelo: 'Vitara', anio: 2021, color: 'Gris', clienteId: 1, activo: true },
+  { id: 3, placa: '7791-KLM', marca: 'Nissan', modelo: 'Kicks', anio: 2023, color: 'Rojo', clienteId: 2, activo: true },
+  { id: 4, placa: '1045-QRS', marca: 'Kia', modelo: 'Sportage', anio: 2020, color: 'Negro', clienteId: 4, activo: false },
+];
+
+Prueba intencional de TypeScript:  cambia temporalmente anio: 2022 por anio: "2022". WebStorm debería señalar una incompatibilidad porque el modelo exige number. Deshaz el cambio después de observar el error.
+
+7. Construir las tablas
+La página será responsable de seleccionar/preparar datos y el componente de tabla será responsable de mostrarlos. Así practicamos separación de responsabilidades y props.
+7.1 ClienteTable.tsx
+import type { Cliente } from '../models/Cliente';
+
+interface ClienteTableProps {
+  clientes: Cliente[];
+}
+
+export default function ClienteTable({ clientes }: ClienteTableProps) {
+  if (clientes.length === 0) {
+    return <div className="empty-state">No hay clientes registrados.</div>;
+  }
+
+  return (
+    <div className="table-card">
+      <div className="table-responsive">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Cliente</th>
+              <th>Documento</th>
+              <th>Teléfono</th>
+              <th>Email</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clientes.map((cliente) => (
+              <tr key={cliente.id}>
+                <td>{cliente.id}</td>
+                <td>{cliente.nombre} {cliente.apellido}</td>
+                <td>{cliente.documento}</td>
+                <td>{cliente.telefono}</td>
+                <td>{cliente.email}</td>
+                <td>
+                  <span className={`status-badge ${cliente.activo ? 'status-active' : 'status-inactive'}`}>
+                    {cliente.activo ? 'Activo' : 'Inactivo'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+Qué debes poder explicar
+ClienteTableProps obliga a que la prop clientes sea un arreglo de objetos Cliente.
+La desestructuración { clientes } extrae esa prop dentro del componente.
+map() transforma cada Cliente en un <tr>.
+key={cliente.id} ofrece a React una identidad estable para cada fila.
+El operador ternario decide el texto y la clase visual del estado.
+El retorno temprano muestra un estado vacío cuando no existen registros.
+7.2 VehiculoTable.tsx
+import type { Cliente } from '../../clientes/models/Cliente';
+import type { Vehiculo } from '../models/Vehiculo';
+
+interface VehiculoTableProps {
+  vehiculos: Vehiculo[];
+  clientes: Cliente[];
+}
+
+export default function VehiculoTable({ vehiculos, clientes }: VehiculoTableProps) {
+  const obtenerNombreCliente = (clienteId: number) => {
+    const cliente = clientes.find((item) => item.id === clienteId);
+    return cliente ? `${cliente.nombre} ${cliente.apellido}` : 'Sin cliente asociado';
+  };
+
+  if (vehiculos.length === 0) {
+    return <div className="empty-state">No hay vehículos registrados.</div>;
+  }
+
+  return (
+    <div className="table-card">
+      <div className="table-responsive">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Placa</th>
+              <th>Marca / Modelo</th>
+              <th>Año</th>
+              <th>Color</th>
+              <th>Cliente</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {vehiculos.map((vehiculo) => (
+              <tr key={vehiculo.id}>
+                <td className="plate-cell">{vehiculo.placa}</td>
+                <td>{vehiculo.marca} {vehiculo.modelo}</td>
+                <td>{vehiculo.anio}</td>
+                <td>{vehiculo.color}</td>
+                <td>{obtenerNombreCliente(vehiculo.clienteId)}</td>
+                <td>
+                  <span className={`status-badge ${vehiculo.activo ? 'status-active' : 'status-inactive'}`}>
+                    {vehiculo.activo ? 'Activo' : 'Inactivo'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+¿Qué representa find() aquí?  busca el Cliente cuyo id coincide con vehiculo.clienteId. Es una forma sencilla de visualizar la relación mientras trabajamos con arreglos locales. Si no encuentra coincidencia, se muestra “Sin cliente asociado”.
+
+8. Integrar las tablas en las páginas
+8.1 ClientesPage.tsx
+import ClienteTable from '../components/ClienteTable';
+import { clientesMock } from '../data/clientes.mock';
+
+export default function ClientesPage() {
+  const total = clientesMock.length;
+  const activos = clientesMock.filter((cliente) => cliente.activo).length;
+
+  return (
+    <section className="feature-page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">GESTIÓN DE CLIENTES</p>
+          <h1>Clientes</h1>
+          <p>Listado local preparado para la futura integración con la API REST.</p>
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <article className="stat-card"><span>Total</span><strong>{total}</strong></article>
+        <article className="stat-card"><span>Activos</span><strong>{activos}</strong></article>
+        <article className="stat-card"><span>Inactivos</span><strong>{total - activos}</strong></article>
+      </div>
+
+      <ClienteTable clientes={clientesMock} />
+    </section>
+  );
+}
+
+Observa que la página conoce el origen de los datos simulados y se los entrega a ClienteTable mediante la prop clientes. La tabla no importa clientesMock directamente.
+8.2 VehiculosPage.tsx
+import { clientesMock } from '../../clientes/data/clientes.mock';
+import VehiculoTable from '../components/VehiculoTable';
+import { vehiculosMock } from '../data/vehiculos.mock';
+
+export default function VehiculosPage() {
+  const total = vehiculosMock.length;
+  const activos = vehiculosMock.filter((vehiculo) => vehiculo.activo).length;
+
+  return (
+    <section className="feature-page">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">GESTIÓN DE VEHÍCULOS</p>
+          <h1>Vehículos</h1>
+          <p>Vehículos asociados a clientes mediante clienteId.</p>
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <article className="stat-card"><span>Total</span><strong>{total}</strong></article>
+        <article className="stat-card"><span>Activos</span><strong>{activos}</strong></article>
+        <article className="stat-card"><span>Inactivos</span><strong>{total - activos}</strong></article>
+      </div>
+
+      <VehiculoTable vehiculos={vehiculosMock} clientes={clientesMock} />
+    </section>
+  );
+}
+
+9. Estilos profesionales y responsive
+Agrega estas reglas al final de src/styles/global.css. No borres los estilos del layout creados en la Guía 02.
+.feature-page {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.page-heading h1 { margin: 0.15rem 0 0.35rem; font-size: 2rem; }
+.page-heading p { margin: 0; color: #64748b; }
+.eyebrow { color: #2563eb !important; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+.stat-card span { display: block; color: #64748b; font-size: 0.85rem; }
+.stat-card strong { display: block; margin-top: 0.25rem; font-size: 1.65rem; color: #0f172a; }
+
+.table-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+.table-responsive { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 820px; }
+.data-table th, .data-table td { padding: 0.95rem 1rem; text-align: left; border-bottom: 1px solid #eef2f7; }
+.data-table th { background: #f8fafc; color: #475569; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.data-table tbody tr:hover { background: #f8fbff; }
+
+.status-badge { display: inline-flex; padding: 0.28rem 0.62rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+.status-active { background: #dcfce7; color: #166534; }
+.status-inactive { background: #fee2e2; color: #991b1b; }
+.plate-cell { font-weight: 800; color: #1d4ed8; letter-spacing: 0.03em; }
+.empty-state { padding: 2rem; text-align: center; color: #64748b; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 14px; }
+
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+
+Prueba responsive:  reduce el ancho del navegador. Las tarjetas estadísticas deben apilarse y la tabla debe permitir desplazamiento horizontal sin romper el layout.
+
+10. Flujo mental que debe defender el estudiante
+clientes.mock.ts
+      ↓  exporta Cliente[]
+ClientesPage.tsx
+      ↓  pasa clientes={clientesMock}
+ClienteTable.tsx
+      ↓  recibe Cliente[] mediante props
+clientes.map(...)
+      ↓  transforma cada objeto en <tr>
+JSX
+      ↓
+React actualiza el DOM
+      ↓
+El navegador muestra la tabla
+
+Para Vehículos el flujo es equivalente, con una diferencia: VehiculoTable también recibe clientesMock para convertir clienteId en un nombre visible mediante find().
+11. Práctica obligatoria
+Sin modificar la arquitectura propuesta, realiza las siguientes tareas:
+Agrega dos clientes nuevos al mock; uno activo y uno inactivo.
+Agrega tres vehículos nuevos y asócialos a clientes existentes usando clienteId.
+Agrega un vehículo con clienteId = 999 y verifica que aparezca “Sin cliente asociado”.
+Cambia temporalmente un dato a un tipo incorrecto y captura/explica el error de TypeScript; luego corrígelo.
+Deja clientesMock como arreglo vacío, comprueba el estado vacío y luego restaura los datos.
+Modifica una placa y verifica que solo cambia la fila correspondiente.
+Ejecuta npm run build y entrega el proyecto sin errores de compilación.
+12. Preguntas de defensa oral
+1. ¿Qué diferencia existe entre la entidad Cliente de Spring Boot y la interface Cliente de TypeScript?
+2. ¿Para qué sirve Cliente[] y qué error evita?
+3. ¿Por qué clientes.mock.ts está separado de ClientesPage.tsx?
+4. ¿Qué significa importar con import type?
+5. ¿Qué recibe ClienteTable mediante props?
+6. ¿Qué ocurriría si ClienteTable espera Cliente[] y enviamos un string?
+7. ¿Qué hace map() en la tabla?
+8. ¿Por qué cada <tr> generado por map() necesita key?
+9. ¿Por qué usamos cliente.id y no el índice del arreglo como key?
+10. ¿La prop key puede leerse como cliente.key dentro del componente? Explica.
+11. ¿Qué hace el retorno temprano cuando clientes.length === 0?
+12. ¿Qué hace filter() en las tarjetas estadísticas?
+13. ¿Cómo se representa la relación uno-a-muchos en los datos simulados?
+14. ¿Por qué un mismo clienteId puede aparecer en varios vehículos?
+15. ¿Qué hace find() en VehiculoTable?
+16. ¿Qué ocurre si find() no encuentra al cliente?
+17. ¿Por qué VehiculoTable recibe dos arreglos?
+18. ¿Qué responsabilidad tiene la página y cuál la tabla?
+19. ¿Qué problema produce usar any indiscriminadamente?
+20. ¿Una interface TypeScript existe en PostgreSQL o en el navegador en runtime?
+21. ¿Qué significa que TypeScript haga chequeo estático?
+22. ¿Cómo cambiará esta arquitectura cuando integremos el backend?
+23. ¿Qué archivo debería dejar de ser el origen de datos cuando usemos la API?
+24. ¿Por qué el CSS usa un contenedor table-responsive?
+25. Describe el flujo completo desde clientesMock hasta una fila visible en el navegador.
+13. Checklist de entrega
+☐  Existen Cliente.ts y Vehiculo.ts con tipos coherentes.
+☐  No se utiliza any para los modelos de esta guía.
+☐  clientesMock está tipado como Cliente[].
+☐  vehiculosMock está tipado como Vehiculo[].
+☐  ClienteTable recibe datos por props.
+☐  VehiculoTable recibe vehículos y clientes por props.
+☐  Cada fila usa un id estable como key.
+☐  Las páginas /clientes y /vehiculos muestran tablas y estadísticas.
+☐  Existe estado visual Activo/Inactivo.
+☐  Existe mensaje para arreglo vacío.
+☐  La tabla es navegable en pantalla angosta.
+☐  npm run build termina sin errores.
+☐  El estudiante puede explicar el flujo datos → props → map → JSX → DOM.
+Referencias técnicas
+React Documentation — Using TypeScript: https://react.dev/learn/typescript
+React Documentation — Rendering Lists: https://react.dev/learn/rendering-lists
+Siguiente guía:  Guía 04 — Formularios profesionales en React: useState, inputs controlados, validaciones y preparación de operaciones Crear/Editar.
+
+
